@@ -1,8 +1,8 @@
 // Run only on the disposable Windows CI machine, against the NSIS installer.
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, readdir, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -23,17 +23,18 @@ const executables = (await readdir(install)).filter((name) => name.endsWith('.ex
 assert.equal(executables.length, 1, 'Expected one desktop executable');
 
 const native = spawn(path.join(install, executables[0]), [], {
-  env: { ...process.env, DEEPTUTOR_DESKTOP_STATE_DIR: state, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9223' },
+  env: { ...process.env, DEEPTUTOR_DESKTOP_STATE_DIR: state, DEEPTUTOR_DESKTOP_TEST_CDP_PORT: '9223' },
   windowsHide: false, stdio: 'ignore',
 });
 let browser;
+let connectionError;
 try {
   const deadline = Date.now() + 60000;
   while (Date.now() < deadline) {
     try { browser = await chromium.connectOverCDP('http://127.0.0.1:9223', { timeout: 3000 }); break; }
-    catch { if (native.exitCode !== null) throw new Error(`Desktop exited: ${native.exitCode}`); await wait(500); }
+    catch (error) { connectionError = error.message; if (native.exitCode !== null) throw new Error(`Desktop exited: ${native.exitCode}`); await wait(500); }
   }
-  assert.ok(browser, 'Desktop WebView2 debugging endpoint did not start');
+  assert.ok(browser, `Desktop WebView2 debugging endpoint did not start: ${connectionError}`);
   const context = browser.contexts()[0];
   const page = context.pages()[0] || await context.waitForEvent('page', { timeout: 30000 });
   const errors = [];
@@ -78,6 +79,16 @@ try {
   }
   console.log('PASS: Windows Job Object cleans up both servers when the desktop is terminated.');
 } catch (error) {
+  try {
+    const diagnostic = execFileSync('powershell.exe', ['-NoProfile', '-Command', "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'deeptutor|msedgewebview2' } | Select-Object Name,ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Depth 3"], { encoding: 'utf8', windowsHide: true });
+    await writeFile(path.join(evidence, 'native-processes.json'), diagnostic);
+  } catch { /* Preserve the original failure. */ }
+  if (browser) {
+    for (const [index, candidate] of browser.contexts()[0].pages().entries()) {
+      await candidate.screenshot({ path: path.join(evidence, `failure-${index}.png`) }).catch(() => {});
+      await writeFile(path.join(evidence, `failure-${index}.txt`), await candidate.locator('body').innerText().catch(() => 'No document'));
+    }
+  }
   try { console.error(await readFile(path.join(state, 'desktop.log'), 'utf8')); } catch { /* No launcher log yet. */ }
   throw error;
 } finally {

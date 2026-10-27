@@ -7,7 +7,7 @@
   "app": {
     "withGlobalTauri": true,
     "windows": [{
-      "label": "main", "title": "DeepTutor Desktop", "width": 1060,
+      "label": "main", "create": false, "title": "DeepTutor Desktop", "width": 1060,
       "height": 760, "minWidth": 800, "minHeight": 640
     }],
     "security": {
@@ -22,7 +22,7 @@
     "shortDescription": "DeepTutor Windows desktop client",
     "windows": {
       "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
-      "nsis": { "installMode": "currentUser", "displayLanguageSelector": true, "languages": ["SimpChinese", "English"] }
+      "nsis": { "installMode": "currentUser", "compression": "zlib", "displayLanguageSelector": true, "languages": ["SimpChinese", "English"] }
     }
   }
 }

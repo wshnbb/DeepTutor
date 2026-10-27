@@ -68,4 +68,7 @@ window, and terminates the desktop process to verify Job Object cleanup. The
 test uses an isolated `DEEPTUTOR_DESKTOP_STATE_DIR`; normal launches use the
 standard per-user application data directory. Native screenshots are uploaded
 as a separate test-evidence artifact.
+CI additionally sets `DEEPTUTOR_DESKTOP_TEST_CDP_PORT` on its own child process;
+the launcher applies those WebView2 arguments programmatically. No debugging port
+is enabled during normal launches. Preview installers use zlib for quicker builds.
 For a UI-only mock preview: `node desktop/tests/preview.mjs` (not a backend test).

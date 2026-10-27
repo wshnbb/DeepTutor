@@ -39,6 +39,14 @@ struct Session {
 
 struct Desktop(Mutex<Session>);
 
+// Opt-in diagnostics for the disposable CI child process. Ordinary launches
+// never open a debugging port. Programmatic options also work on elevated CI.
+fn test_browser_args() -> Option<String> {
+    std::env::var("DEEPTUTOR_DESKTOP_TEST_CDP_PORT").ok()
+        .and_then(|value| value.parse::<u16>().ok()).filter(|port| *port > 0)
+        .map(|port| format!("--remote-debugging-port={port} --disable-gpu"))
+}
+
 fn manager_only(window: &WebviewWindow) -> Result<(), String> {
     if window.label() == "main" { Ok(()) } else { Err("Desktop controls are only available in the launcher.".into()) }
 }
@@ -233,11 +241,15 @@ fn section_path(section: &str, workspace_id: Option<&str>) -> Result<String, Str
 }
 
 #[tauri::command]
-fn open_app(window: WebviewWindow, app: tauri::AppHandle, state: State<Desktop>, section: String, workspace_id: Option<String>) -> Result<(), String> {
+async fn open_app(window: WebviewWindow, app: tauri::AppHandle, section: String, workspace_id: Option<String>) -> Result<(), String> {
     manager_only(&window)?;
-    let mut session = state.inner().0.lock().map_err(|e| e.to_string())?;
-    if status(&mut session).phase != "ready" { return Err("服务还没有准备好。".into()); }
-    let info = ready(&session).ok_or("Missing service endpoints")?;
+    // Never retain the supervisor lock across window creation/COM callbacks.
+    let (info, browser_data) = {
+        let state = app.state::<Desktop>();
+        let mut session = state.inner().0.lock().map_err(|e| e.to_string())?;
+        if status(&mut session).phase != "ready" { return Err("服务还没有准备好。".into()); }
+        (ready(&session).ok_or("Missing service endpoints")?, session.control.parent().ok_or("Missing state directory")?.join("webview"))
+    };
     let base = endpoint(&info.frontend_url).ok_or("Invalid service origin")?;
     let url = base.join(&section_path(&section, workspace_id.as_deref())?).map_err(|e| e.to_string())?;
     if let Some(tutor) = app.get_webview_window("tutor") {
@@ -246,10 +258,12 @@ fn open_app(window: WebviewWindow, app: tauri::AppHandle, state: State<Desktop>,
         return tutor.set_focus().map_err(|e| e.to_string());
     }
     let port = base.port();
-    tauri::WebviewWindowBuilder::new(&app, "tutor", WebviewUrl::External(url))
+    let mut builder = tauri::WebviewWindowBuilder::new(&app, "tutor", WebviewUrl::External(url))
         .title("DeepTutor").inner_size(1320.0, 900.0).min_inner_size(900.0, 640.0)
-        .on_navigation(move |url| url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port() == port)
-        .build().map_err(|e| e.to_string())?;
+        .data_directory(browser_data)
+        .on_navigation(move |url| url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port() == port);
+    if let Some(args) = test_browser_args() { builder = builder.additional_browser_args(&args); }
+    builder.build().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -287,6 +301,10 @@ fn main() {
                 control: root.join("control"), runtime: app.path().resource_dir()?.join("runtime"),
                 log: root.join("desktop.log"), preferences_file, home, last_error: String::new(),
             })));
+            let mut window = tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
+                .data_directory(root.join("webview"));
+            if let Some(args) = test_browser_args() { window = window.additional_browser_args(&args); }
+            window.build()?;
             Ok(())
         })
         .on_window_event(|window, event| {
