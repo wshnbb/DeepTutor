@@ -27,19 +27,25 @@ const launch = () => spawn(path.join(install, executables[0]), [], {
   windowsHide: false, stdio: 'ignore',
 });
 let native = launch();
+let settingsPage;
+const windowSnapshot = () => settingsPage.evaluate(async () => Promise.all(
+  (await window.__TAURI__.window.getAllWindows()).map(async (item) => ({
+    label: item.label, title: await item.title(), visible: await item.isVisible(),
+  })),
+));
 const control = (action, outputPath) => {
   const args = ['-NoProfile', '-File', 'tests/window-control.ps1', '-DesktopProcessId', String(native.pid), '-Action', action];
   if (outputPath) args.push('-OutputPath', outputPath);
   const output = execFileSync('pwsh.exe', args, { encoding: 'utf8', windowsHide: true });
   return action === 'Snapshot' ? JSON.parse(output) : undefined;
 };
-const waitForWindow = async (title, visible) => {
+const waitForWindow = async (label, visible) => {
   const deadline = Date.now() + 15000;
   while (Date.now() < deadline) {
-    if (control('Snapshot').some((item) => item.title === title && item.visible === visible)) return;
+    if ((await windowSnapshot()).some((item) => item.label === label && item.visible === visible)) return;
     await wait(250);
   }
-  assert.fail(`Window visibility mismatch: ${title}, ${visible}`);
+  assert.fail(`Window visibility mismatch: ${label}, ${visible}; process ${native.pid}; windows ${JSON.stringify(await windowSnapshot())}; native ${JSON.stringify(control('Snapshot'))}`);
 };
 const readEndpoints = async () => {
   const files = (await readdir(path.join(state, 'control'))).filter((name) => name.endsWith('.json'));
@@ -74,6 +80,7 @@ try {
   assert.ok(browser, `Desktop WebView2 debugging endpoint did not start: ${connectionError}`);
   const context = browser.contexts()[0];
   const page = context.pages()[0] || await context.waitForEvent('page', { timeout: 30000 });
+  settingsPage = page;
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   // No Start click: opening the installed app must open the original UI itself.
@@ -88,23 +95,23 @@ try {
   await tutor.getByRole('heading', { name: 'What would you like to learn?', exact: true }).waitFor({ timeout: 60000 });
   await tutor.getByRole('link', { name: 'Partners', exact: true }).waitFor();
   await tutor.getByRole('link', { name: 'Task Board', exact: true }).waitFor();
-  await waitForWindow('DeepTutor 桌面设置', false);
-  await waitForWindow('DeepTutor', true);
   await tutor.screenshot({ path: path.join(evidence, 'native-original-chat.png') });
+  await writeFile(path.join(evidence, 'native-windows.json'), JSON.stringify({ executable: path.join(install, executables[0]), pid: native.pid, windows: control('Snapshot'), tauri: await windowSnapshot() }, null, 2));
   control('CaptureTutor', path.join(evidence, 'native-application-window.png'));
-  await writeFile(path.join(evidence, 'native-windows.json'), JSON.stringify({ executable: path.join(install, executables[0]), pid: native.pid, windows: control('Snapshot') }, null, 2));
+  await waitForWindow('main', false);
+  await waitForWindow('tutor', true);
   console.log('PASS: startup automatically opens the original chat, sidebar and learning tools.');
 
   control('Settings');
-  await waitForWindow('DeepTutor 桌面设置', true);
+  await waitForWindow('main', true);
   await page.getByRole('button', { name: '工作区 02', exact: true }).click();
   await page.locator('.workspace-row').first().waitFor({ timeout: 60000 });
   await page.screenshot({ path: path.join(evidence, 'native-workspaces.png') });
   control('CloseSettings');
-  await waitForWindow('DeepTutor 桌面设置', false);
+  await waitForWindow('main', false);
   assert.equal(native.exitCode, null, 'Closing secondary settings quit the application');
   control('Settings');
-  await waitForWindow('DeepTutor 桌面设置', true);
+  await waitForWindow('main', true);
   await page.getByRole('button', { name: '概览 01', exact: true }).click();
   await page.getByRole('button', { name: '停止服务', exact: true }).click();
   await page.locator('#status').filter({ hasText: '尚未启动' }).waitFor({ timeout: 40000 });
@@ -112,7 +119,7 @@ try {
 
   await page.getByRole('button', { name: '启动并打开应用 ↗', exact: true }).click();
   await page.locator('#status').filter({ hasText: '正在运行' }).waitFor({ timeout: 240000 });
-  await waitForWindow('DeepTutor 桌面设置', false);
+  await waitForWindow('main', false);
   let endpoints = await readEndpoints();
   assert.deepEqual(errors, [], 'Desktop page has JavaScript errors');
   const exited = once(native, 'exit');

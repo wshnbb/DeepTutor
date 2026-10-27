@@ -34,7 +34,7 @@ public static class DesktopWindows {
 '@
 $windows = @([DesktopWindows]::Find($DesktopProcessId) | ForEach-Object {
   [pscustomobject]@{ handle = $_; title = [DesktopWindows]::Title($_); visible = [DesktopWindows]::IsWindowVisible($_) }
-} | Where-Object { $_.title -in @('DeepTutor', 'DeepTutor 桌面设置') })
+})
 if ($Action -eq 'Snapshot') {
   ConvertTo-Json -InputObject @($windows | Select-Object title,visible) -Compress
   exit 0
