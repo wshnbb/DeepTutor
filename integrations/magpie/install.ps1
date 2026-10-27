@@ -44,7 +44,15 @@ if (-not $BindOnly -and -not $Magpie) {
 $binding = @{ config=$catalog.Replace('\','/'); dir=$dataRoot.Replace('\','/') } | ConvertTo-Json -Compress
 [IO.File]::WriteAllText((Join-Path $PSScriptRoot 'binding.js'), ('export const binding = ' + $binding + ';' + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
 if (-not $BindOnly) {
-  $installed = Start-Process -FilePath $Magpie -ArgumentList @('plugin', 'add', ('"' + $PSScriptRoot + '"')) -WindowStyle Hidden -Wait -PassThru
+  $configurationRoot = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $env:USERPROFILE '.config' }
+  $pluginDirectory = Join-Path $configurationRoot 'magpie\local-agents\deeptutor'
+  New-Item -ItemType Directory -Path $pluginDirectory -Force | Out-Null
+  if ([IO.Path]::GetFullPath($PSScriptRoot) -ne [IO.Path]::GetFullPath($pluginDirectory)) {
+    foreach ($name in @('package.json','agent.js','binding.js','install.ps1','README.md')) {
+      Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $pluginDirectory $name) -Force
+    }
+  }
+  $installed = Start-Process -FilePath $Magpie -ArgumentList @('plugin', 'add', ('"' + $pluginDirectory + '"')) -WindowStyle Hidden -Wait -PassThru
   if ($installed.ExitCode -ne 0) { throw ('Magpie 插件安装失败：' + $installed.ExitCode) }
 }
-[pscustomobject]@{ agent='deeptutor'; config=$catalog; plugin=$PSScriptRoot; bound=$true } | ConvertTo-Json -Compress
+[pscustomobject]@{ agent='deeptutor'; config=$catalog; plugin=$(if($BindOnly){$PSScriptRoot}else{$pluginDirectory}); bound=$true } | ConvertTo-Json -Compress
