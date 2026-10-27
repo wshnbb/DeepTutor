@@ -9,7 +9,8 @@ pwsh -File .\install.ps1 -Magpie 'E:\edge\magpie-windows-amd64.exe'
 
 安装脚本读取桌面版 `desktop.json` 的 `home`，绑定已选的数据目录。
 插件安装到 Magpie 配置目录的 `local-agents/deeptutor`，运行不依赖下载目录或开发源码目录。
-在 Magpie 选择模型后，关闭并重新打开 DeepTutor，正在运行的后端会使用新设置。
+在 Magpie 选择模型后，右键 DeepTutor 托盘图标选择「退出 DeepTutor」，再重新启动，正在运行的后端才会使用新设置。
+只关闭窗口会保留后台服务，不会触发重新读取配置。
 在 Magpie 断开连接会恢复接入前的主模型配置；其他服务、工作区、资料和聊天记录不受影响。
 安装时会建立独立的 Magpie 主模型配置；已有模型配置会完整保留。
 如果在桌面设置中更换数据目录，重新运行安装脚本即可重新绑定。

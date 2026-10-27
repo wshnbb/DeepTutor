@@ -13,7 +13,7 @@ export const agent = {
   model: profilePath + '.models.0.model',
   ua: ['deeptutor', 'deeptutor-desktop'],
   icon: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"%3E%3Crect width="64" height="64" rx="14" fill="%23526a42"/%3E%3Cpath d="M18 15h13c13 0 20 6 20 17s-7 17-20 17H18zm9 8v18h4c8 0 12-3 12-9s-4-9-12-9z" fill="%23f4f7ed"/%3E%3C/svg%3E',
-  notice: '模型已写入。请关闭并重新打开 DeepTutor，使正在运行的服务使用新设置。',
+  notice: '模型已写入。请右键 DeepTutor 托盘图标选择「退出 DeepTutor」，再重新启动；只关闭窗口不会重启服务。',
 };
 
 export function connect({ gateway, model }) {
