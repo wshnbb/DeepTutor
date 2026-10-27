@@ -34,6 +34,16 @@ jobs:
         with:
           python-version: "3.12"
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+          cache-on-failure: true
+      - name: Restore packaged runtime
+        id: runtime-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: desktop/src-tauri/runtime
+          key: windows-runtime-v1-${{ hashFiles('pyproject.toml', 'requirements/**', 'deeptutor/**', 'deeptutor_cli/**', 'deeptutor_web/__init__.py', 'web/**', 'scripts/prepare_web_package.py', 'desktop/runtime/runner.py', 'desktop/scripts/prepare_runtime.py') }}
       - name: Install desktop build tools
         working-directory: desktop
         run: npm ci
@@ -47,24 +57,44 @@ jobs:
       - name: Validate desktop runtime contracts
         run: python -m unittest discover -s desktop/tests -p 'test_*.py' -v
       - name: Install Web dependencies
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
         working-directory: web
         run: npm ci --legacy-peer-deps
       - name: Build production Web app
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
         working-directory: web
         run: npm run build
         env:
           NEXT_PUBLIC_API_BASE: __NEXT_PUBLIC_API_BASE_PLACEHOLDER__
           NEXT_PUBLIC_AUTH_ENABLED: __NEXT_PUBLIC_AUTH_ENABLED_PLACEHOLDER__
       - name: Package production Web app
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
         run: python scripts/prepare_web_package.py --skip-build
       - name: Build Python wheel from this commit
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
         working-directory: ${{ runner.temp }}
         run: python -m build --wheel --outdir "$env:GITHUB_WORKSPACE/desktop/dist" "$env:GITHUB_WORKSPACE"
       - name: Assemble portable runtime
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $wheel = Get-ChildItem -LiteralPath desktop/dist -Filter '*.whl' | Select-Object -First 1
           python desktop/scripts/prepare_runtime.py --wheel $wheel.FullName
+      - name: Cache packaged runtime
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: desktop/src-tauri/runtime
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
+      - name: Record desktop source commit
+        shell: python
+        run: |
+          import json, os
+          from pathlib import Path
+          path = Path('desktop/src-tauri/runtime/manifest.json')
+          data = json.loads(path.read_text(encoding='utf-8'))
+          data['desktop_source_commit'] = os.environ['GITHUB_SHA']
+          path.write_text(json.dumps(data, indent=2), encoding='utf-8')
       - name: Verify real packaged runtime
         run: python desktop/scripts/smoke_runtime.py --runtime desktop/src-tauri/runtime
       - name: Generate desktop icons

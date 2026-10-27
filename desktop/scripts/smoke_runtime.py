@@ -54,7 +54,9 @@ def smoke(runtime: Path) -> None:
                     str(python), "-X", "utf8", str(runner), "add-workspace", "--home", str(home), "--folder", str(workspace),
                 ], env=env, text=True, encoding="utf-8")
                 data = json.loads(result)
-                assert any(Path(row["path"]) == workspace for row in data["workspaces"])
+                assert any(Path(row["path"]).resolve() == workspace.resolve() for row in data["workspaces"]), {
+                    "expected": str(workspace.resolve()), "actual": [row["path"] for row in data["workspaces"]],
+                }
                 assert (workspace / "example.txt").read_text(encoding="utf-8") == "Desktop smoke test"
                 # Check actual listeners for the owned service process tree.
                 import psutil

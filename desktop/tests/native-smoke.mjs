@@ -44,7 +44,9 @@ try {
   await page.getByRole('button', { name: '工作区 02', exact: true }).click();
   await page.locator('.workspace-row').first().waitFor({ timeout: 60000 });
   await page.screenshot({ path: path.join(evidence, 'native-workspaces.png') });
-  assert.ok(context.pages().some((item) => /^http:\/\/127\.0\.0\.1:\d+\/chat/.test(item.url())), 'Tutoring window did not open');
+  const tutor = context.pages().find((item) => item !== page && /^http:\/\/127\.0\.0\.1:\d+\//.test(item.url()));
+  assert.ok(tutor, 'Tutoring window did not open');
+  assert.ok((await tutor.locator('body').innerText()).trim(), 'Tutoring window is blank');
   await page.getByRole('button', { name: '概览 01', exact: true }).click();
   await page.getByRole('button', { name: '停止服务', exact: true }).click();
   await page.locator('#status').filter({ hasText: '尚未启动' }).waitFor({ timeout: 40000 });
