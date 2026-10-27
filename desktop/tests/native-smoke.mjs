@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -181,6 +181,21 @@ try {
   control('CloseSettings');
   await Promise.race([invalidExited, wait(15000).then(() => { throw new Error('Startup error window did not close'); })]);
   console.log('PASS: startup failure shows a stable error screen with retry/log buttons, without the dashboard.');
+
+  await browser.close().catch(() => {}); browser = undefined;
+  const uninstall = spawn(path.join(install, 'uninstall.exe'), ['/S'], { windowsHide: true });
+  const [uninstallCode] = await once(uninstall, 'exit');
+  assert.equal(uninstallCode, 0, 'Uninstaller failed');
+  const uninstallDeadline = Date.now() + 60000;
+  let removed = false;
+  while (Date.now() < uninstallDeadline) {
+    try { await access(path.join(install, executables[0])); }
+    catch (error) { if (error.code === 'ENOENT') { removed = true; break; } throw error; }
+    await wait(500);
+  }
+  assert.ok(removed, 'Uninstaller left the desktop executable installed');
+  await access(path.join(state, 'home', 'data', 'user', 'settings', 'system.json'));
+  console.log('PASS: the actual uninstaller removes the application and keeps the separate runtime home.');
 } catch (error) {
   try {
     const diagnostic = execFileSync('powershell.exe', ['-NoProfile', '-Command', "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'deeptutor|msedgewebview2' } | Select-Object Name,ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Depth 3"], { encoding: 'utf8', windowsHide: true });
@@ -199,3 +214,4 @@ try {
   if (native.exitCode === null) native.kill();
   for (const server of blockers) server.close();
 }
+
