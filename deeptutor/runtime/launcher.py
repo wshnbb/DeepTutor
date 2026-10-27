@@ -605,6 +605,29 @@ def _owned_orphan_started_at(
     return None
 
 
+def _select_loopback_ports(
+    backend_port: int, frontend_port: int, check_frontend: bool,
+) -> tuple[int, int]:
+    """Keep bindable ports, or ask the OS for distinct free loopback ports."""
+    probes: list[socket.socket] = []
+    selected: list[int] = []
+    try:
+        for preferred in [backend_port, *([frontend_port] if check_frontend else [])]:
+            probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            probes.append(probe)
+            if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            try:
+                probe.bind(("127.0.0.1", preferred))
+            except OSError:
+                probe.bind(("127.0.0.1", 0))
+            selected.append(probe.getsockname()[1])
+        return selected[0], selected[1] if check_frontend else frontend_port
+    finally:
+        for probe in probes:
+            probe.close()
+
+
 def _resolve_port_conflicts(
     *,
     backend_port: int,
@@ -613,12 +636,22 @@ def _resolve_port_conflicts(
     settings_dir: Path,
     runtime_home: Path | None = None,
     frontend_cwd: Path | None = None,
+    auto_ports: bool = False,
 ) -> tuple[int, int]:
     """Return free ``(backend_port, frontend_port)``, resolving conflicts interactively.
 
     Without a TTY, reclaim verified orphaned children of this deployment once;
     unknown or foreign listeners retain the historical port-conflict failure.
     """
+    if auto_ports:
+        # Desktop launches have no interactive console. Never prompt or reclaim
+        # another deployment's listeners, even if Windows reports NUL as a TTY.
+        selected = _select_loopback_ports(backend_port, frontend_port, check_frontend)
+        if selected != (backend_port, frontend_port):
+            path = _persist_ports(settings_dir, *selected)
+            _log(_t("start.port_saved", path=path))
+        return selected
+
     reclaimed = False
     while True:
         roles = [("start.backend", backend_port)]
@@ -1403,9 +1436,12 @@ def start(
     open_browser: bool = True,
     bind_host: str = "0.0.0.0",
     on_ready: Callable[[dict[str, Any]], None] | None = None,
+    auto_ports: bool = False,
 ) -> None:
     if bind_host not in {"127.0.0.1", "0.0.0.0"}:
         raise ValueError("bind_host must be an IPv4 loopback or wildcard address")
+    if auto_ports and (detach or bind_host != "127.0.0.1"):
+        raise ValueError("auto_ports requires attached loopback mode")
     _relax_console_encoding()
     runtime_home = get_runtime_home(home)
     try:
@@ -1486,6 +1522,7 @@ def start(
         settings_dir=settings.settings_dir,
         runtime_home=runtime_home,
         frontend_cwd=frontend.cwd,
+        auto_ports=auto_ports,
     )
     if (resolved_backend, resolved_frontend) != (backend_port, frontend_port):
         backend_port, frontend_port = resolved_backend, resolved_frontend

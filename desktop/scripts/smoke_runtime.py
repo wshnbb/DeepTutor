@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
@@ -23,7 +24,14 @@ def smoke(runtime: Path) -> None:
     env = os.environ.copy()
     env["PATH"] = str(runtime / "node") + os.pathsep + env["PATH"]
     opener = build_opener(ProxyHandler({}))
-    with tempfile.TemporaryDirectory(prefix="deeptutor-desktop-smoke-") as directory:
+    with tempfile.TemporaryDirectory(prefix="deeptutor-desktop-smoke-") as directory, ExitStack() as guards:
+        # Reproduce a separately running Web deployment on both default ports.
+        blockers = []
+        for port in [8001, 3782]:
+            listener = guards.enter_context(socket.socket())
+            listener.bind(("127.0.0.1", port))
+            listener.listen()
+            blockers.append(listener)
         root = Path(directory)
         home = root / "运行数据"
         control = root / "control"
@@ -46,6 +54,9 @@ def smoke(runtime: Path) -> None:
                         raise AssertionError(log_path.read_text(encoding="utf-8", errors="replace"))
                     time.sleep(1)
                 endpoints = json.loads(ready.read_text(encoding="utf-8"))
+                from urllib.parse import urlsplit
+                assert all(urlsplit(endpoints[key]).port not in {8001, 3782}
+                           for key in ["frontend_url", "backend_url"]), endpoints
                 for key in ["frontend_url", "backend_url"]:
                     with opener.open(endpoints[key], timeout=20) as response:
                         assert response.status == 200, key
@@ -85,6 +96,10 @@ def smoke(runtime: Path) -> None:
                         probe.settimeout(1)
                         assert probe.connect_ex(("127.0.0.1", port)) != 0, f"Orphaned service on {port}"
             print("PASS: graceful shutdown leaves no server listeners.")
+            for listener in blockers:
+                with socket.create_connection(listener.getsockname(), timeout=1):
+                    pass
+            print("PASS: desktop automatically avoids occupied ports and preserves both existing listeners.")
 
 
 if __name__ == "__main__":

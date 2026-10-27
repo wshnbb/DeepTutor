@@ -6,7 +6,8 @@
 </head>
 <body class="booting">
   <section id="startup" role="status" aria-live="polite">
-    <h1>DeepTutor</h1><p id="startup-detail">正在启动，随后进入学习界面…</p>
+    <h1 id="startup-title">DeepTutor</h1><p id="startup-detail">正在启动，随后进入学习界面…</p>
+    <div class="actions"><button id="startup-retry" hidden>重新启动</button><button id="startup-logs" hidden>查看启动日志</button></div>
     <button id="startup-settings">桌面设置</button>
   </section>
   <aside class="sidebar">
@@ -16,7 +17,7 @@
     <button class="nav" data-view="workspace">工作区<span>02</span></button>
     <button class="nav" data-view="settings">配置与权限<span>03</span></button>
     <button class="nav" data-view="logs">启动日志<span>04</span></button>
-    <div class="sidebar-bottom"><span class="dot" id="rail-dot"></span><span id="rail-state">尚未启动</span><small>Windows · 0.1.1 Preview</small></div>
+    <div class="sidebar-bottom"><span class="dot" id="rail-dot"></span><span id="rail-state">尚未启动</span><small>Windows · 0.1.2 Preview</small></div>
   </aside>
   <main>
     <header><span id="breadcrumb">个人空间 / 概览</span><span class="local-badge">本机运行</span></header>

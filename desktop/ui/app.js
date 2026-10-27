@@ -13,8 +13,18 @@ function showSettings() {
   document.body.classList.remove('booting');
   openWhenReady = false;
 }
+function showStartupError(error) {
+  openWhenReady = false;
+  document.body.classList.add('booting');
+  $('#startup-title').textContent = '启动遇到问题';
+  $('#startup-detail').textContent = String(error || '服务未能启动，请查看启动日志。');
+  $('#startup-retry').hidden = false;
+  $('#startup-logs').hidden = false;
+}
 window.addEventListener('desktop-settings', showSettings);
 $('#startup-settings').addEventListener('click', showSettings);
+$('#startup-retry').addEventListener('click', () => action(startApplication));
+$('#startup-logs').addEventListener('click', () => { showSettings(); showView('logs'); });
 
 function message(text) {
   $('#message').textContent = String(text);
@@ -30,7 +40,10 @@ async function action(callback) {
   if (busy) return;
   busy = true;
   message('');
-  try { await callback(); } catch (error) { showSettings(); message(error); }
+  try { await callback(); } catch (error) {
+    if (document.body.classList.contains('booting')) showStartupError(error);
+    else message(error);
+  }
   finally { busy = false; await refresh(); }
 }
 
@@ -53,7 +66,7 @@ function renderStatus(status) {
   $('#rail-dot').classList.toggle('ready', running);
   $('#service-title').textContent = running ? '学习空间已就绪' : starting ? '正在准备你的学习空间' : '准备好，继续学习';
   $('#service-detail').textContent = status.message || (running ? '模型设置、工作区和学习工具已可以打开。' : starting ? '首次启动可能需要几分钟。你可以在启动日志查看进度。' : '启动后即可配置模型、整理资料，进入你的学习工作区。');
-  $('#startup-detail').textContent = starting ? '正在启动，随后进入学习界面…' : '正在打开学习界面…';
+  if (phase !== 'error') $('#startup-detail').textContent = starting ? '正在启动，随后进入学习界面…' : '正在打开学习界面…';
   $('#start').disabled = running || starting || busy;
   $('#stop').disabled = (!running && !starting) || busy;
   $('#choose-home').disabled = running || starting || busy;
@@ -79,12 +92,14 @@ async function refresh() {
       openWhenReady = false;
       if (phase === 'error' && !errorRevealed) {
         errorRevealed = true;
-        showSettings();
-        await command('show_settings');
-        message(status.message);
+        showStartupError(status.message);
+        await command('show_settings', { startupError: true });
       }
     }
-  } catch (error) { showSettings(); message(error); }
+  } catch (error) {
+    if (document.body.classList.contains('booting')) showStartupError(error);
+    else message(error);
+  }
   finally { polling = false; }
 }
 
@@ -123,6 +138,9 @@ async function loadLogs() { $('#log-output').textContent = await command('read_l
 $$('[data-view]').forEach((button) => button.addEventListener('click', () => showView(button.dataset.view)));
 $$('[data-section]').forEach((button) => button.addEventListener('click', () => action(() => command('open_app', { section: button.dataset.section, workspaceId: null }))));
 async function startApplication() {
+  $('#startup-title').textContent = 'DeepTutor';
+  $('#startup-retry').hidden = true;
+  $('#startup-logs').hidden = true;
   errorRevealed = false;
   openWhenReady = true;
   try { renderStatus(await command('start_service')); }

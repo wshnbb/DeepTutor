@@ -66,6 +66,7 @@ class RunnerTests(unittest.TestCase):
             def start(**kwargs):
                 self.assertEqual(kwargs["bind_host"], "127.0.0.1")
                 self.assertFalse(kwargs["open_browser"])
+                self.assertTrue(kwargs["auto_ports"])
                 self.assertFalse((control / "test.json").exists())
                 kwargs["on_ready"]({"frontend_url": "http://127.0.0.1:1234"})
                 self.assertEqual(json.loads((control / "test.json").read_text())["instance"], "test")

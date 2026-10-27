@@ -73,7 +73,7 @@ def serve(home: Path, control: Path, instance: str, gate: Path | None = None) ->
     threading.Thread(target=stop_watcher, daemon=True).start()
     try:
         launcher.start(
-            home=home, open_browser=False, bind_host="127.0.0.1",
+            home=home, open_browser=False, bind_host="127.0.0.1", auto_ports=True,
             on_ready=lambda endpoints: atomic_json(
                 ready_file, {**endpoints, "instance": instance, "pid": os.getpid()}
             ),

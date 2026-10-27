@@ -62,9 +62,13 @@ fn reveal_settings(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn show_settings(window: WebviewWindow, app: tauri::AppHandle) -> Result<(), String> {
+fn show_settings(window: WebviewWindow, app: tauri::AppHandle, startup_error: Option<bool>) -> Result<(), String> {
     manager_only(&window)?;
-    reveal_settings(&app)
+    if startup_error == Some(true) {
+        window.show().map_err(|e| e.to_string())?;
+        window.unminimize().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())
+    } else { reveal_settings(&app) }
 }
 
 fn hidden(command: &mut Command) {

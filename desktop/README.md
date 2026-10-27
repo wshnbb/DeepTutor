@@ -18,6 +18,10 @@ Start **DeepTutor Desktop**: services start automatically and the original
 DeepTutor **/chat** interface opens as the primary window. Its existing sidebar,
 learning features, model settings and workspace controls remain the application UI.
 The brief startup screen gives way to that original interface without a Start click.
+If another app occupies the configured ports, the desktop automatically selects
+available loopback ports and saves them for its next launch. Existing processes
+continue running. Startup failures show a dedicated error screen with retry/log
+buttons; the desktop settings dashboard is a secondary menu destination.
 
 Use the native **桌面设置** menu (or **Ctrl+Shift+D**) to open the secondary desktop
 settings window for application data location, service controls and a Windows

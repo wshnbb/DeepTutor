@@ -14,6 +14,13 @@ const install = path.join(root, 'app');
 const state = path.join(root, 'state');
 const evidence = path.resolve(process.env.DESKTOP_EVIDENCE || path.join(root, 'evidence'));
 await mkdir(evidence, { recursive: true });
+const blockers = [];
+for (const port of [8001, 3782]) {
+  const server = net.createServer((socket) => socket.end());
+  server.listen(port, '127.0.0.1');
+  await once(server, 'listening');
+  blockers.push(server);
+}
 const installers = (await readdir('src-tauri/target/release/bundle/nsis')).filter((name) => name.endsWith('.exe'));
 assert.equal(installers.length, 1);
 const installer = spawn(path.resolve('src-tauri/target/release/bundle/nsis', installers[0]), ['/S', `/D=${install}`], { windowsHide: true });
@@ -92,6 +99,7 @@ try {
     await wait(500);
   }
   assert.ok(tutor, 'Original application did not open automatically');
+  assert.notEqual(new URL(tutor.url()).port, '3782', 'Desktop reused the occupied Web frontend');
   await tutor.getByRole('heading', { name: 'What would you like to learn?', exact: true }).waitFor({ timeout: 60000 });
   await tutor.getByRole('link', { name: 'Partners', exact: true }).waitFor();
   await tutor.getByRole('link', { name: 'Task Board', exact: true }).waitFor();
@@ -142,6 +150,8 @@ try {
   await once(native, 'exit');
   await assertStopped(endpoints);
   console.log('PASS: Windows Job Object cleans up both servers when the desktop is terminated.');
+  assert.ok(blockers.every((server) => server.listening), 'Desktop stopped an existing listener');
+  console.log('PASS: installed desktop coexists with Web services occupying the default ports.');
 } catch (error) {
   try {
     const diagnostic = execFileSync('powershell.exe', ['-NoProfile', '-Command', "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'deeptutor|msedgewebview2' } | Select-Object Name,ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Depth 3"], { encoding: 'utf8', windowsHide: true });
@@ -158,4 +168,5 @@ try {
 } finally {
   await browser?.close().catch(() => {});
   if (native.exitCode === null) native.kill();
+  for (const server of blockers) server.close();
 }
