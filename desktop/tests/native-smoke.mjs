@@ -103,7 +103,8 @@ try {
   }
   assert.ok(tutor, 'Original application did not open automatically');
   assert.notEqual(new URL(tutor.url()).port, '3782', 'Desktop reused the occupied Web frontend');
-  await tutor.getByRole('heading', { name: 'What would you like to learn?', exact: true }).waitFor({ timeout: 60000 });
+  // The original chat chooses its greeting from the local time on mount.
+  await tutor.getByRole('heading', { name: /What would you like to learn|Good morning|Good afternoon|Good evening|It's late|Morning —|Afternoon —|Evening —|Burning the midnight/ }).waitFor({ timeout: 60000 });
   await tutor.getByRole('link', { name: 'Partners', exact: true }).waitFor();
   await tutor.getByRole('link', { name: 'Task Board', exact: true }).waitFor();
   await tutor.screenshot({ path: path.join(evidence, 'native-original-chat.png') });
