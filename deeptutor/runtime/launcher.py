@@ -1401,7 +1401,11 @@ def start(
     dev: bool = False,
     detach: bool = False,
     open_browser: bool = True,
+    bind_host: str = "0.0.0.0",
+    on_ready: Callable[[dict[str, Any]], None] | None = None,
 ) -> None:
+    if bind_host not in {"127.0.0.1", "0.0.0.0"}:
+        raise ValueError("bind_host must be an IPv4 loopback or wildcard address")
     _relax_console_encoding()
     runtime_home = get_runtime_home(home)
     try:
@@ -1521,7 +1525,7 @@ def start(
     common_env["BACKEND_PORT"] = str(backend_port)
     common_env["FRONTEND_PORT"] = str(frontend_port)
     common_env["PORT"] = str(frontend_port)
-    common_env["HOSTNAME"] = "0.0.0.0"
+    common_env["HOSTNAME"] = bind_host
     common_env["NEXT_PUBLIC_API_BASE"] = api_base
     common_env["NEXT_PUBLIC_AUTH_ENABLED"] = "true" if auth_enabled else "false"
     # The Next.js middleware (web/proxy.ts) runs in the frontend's Node runtime
@@ -1568,7 +1572,7 @@ def start(
         "uvicorn",
         "deeptutor.api.main:app",
         "--host",
-        "0.0.0.0",
+        bind_host,
         "--port",
         str(backend_port),
         "--log-level",
@@ -1689,6 +1693,13 @@ def start(
                 frontend_port=frontend_port,
             )
         _log(_t("start.open_in_browser", url=frontend_url))
+        if on_ready is not None:
+            on_ready(
+                {
+                    "frontend_url": f"http://127.0.0.1:{frontend_port}",
+                    "backend_url": backend_url,
+                }
+            )
         if open_browser:
             _open_frontend_in_browser(frontend_url)
 
@@ -1713,3 +1724,4 @@ def start(
 
 
 __all__ = ["start", "stop"]
+

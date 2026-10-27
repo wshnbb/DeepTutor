@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DeepTutor Desktop</title><link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#"><span class="mark">D<span>t</span></span><strong>DeepTutor<small>DESKTOP</small></strong></a>
+    <p class="nav-label">你的学习空间</p>
+    <button class="nav active" data-view="overview">概览<span>01</span></button>
+    <button class="nav" data-view="workspace">工作区<span>02</span></button>
+    <button class="nav" data-view="settings">配置与权限<span>03</span></button>
+    <button class="nav" data-view="logs">启动日志<span>04</span></button>
+    <div class="sidebar-bottom"><span class="dot" id="rail-dot"></span><span id="rail-state">尚未启动</span><small>Windows · 0.1.0 Preview</small></div>
+  </aside>
+  <main>
+    <header><span id="breadcrumb">个人空间 / 概览</span><span class="local-badge">本机运行</span></header>
+    <section id="overview" class="view">
+      <p class="eyebrow">A SPACE TO KEEP LEARNING</p>
+      <h1>让好奇心，有个落脚点。</h1>
+      <p class="intro">你的模型、学习资料与对话，在同一个地方。</p>
+      <div class="service-card">
+        <div class="service-top"><span class="status-pill" id="status">尚未启动</span><span class="card-caption">YOUR PERSONAL LEARNING SPACE</span></div>
+        <h2 id="service-title">准备好，继续学习</h2>
+        <p id="service-detail">启动后即可配置模型、整理资料，进入你的学习工作区。</p>
+        <div class="actions"><button class="primary" id="start">启动并打开应用 <span>↗</span></button><button id="open" data-section="chat" disabled>打开应用</button><button id="stop" disabled>停止服务</button></div>
+      </div>
+      <div class="quick-grid"><button class="quick" data-section="providers" disabled><span class="quick-icon">✳</span><strong>连接模型</strong><small>配置服务商、密钥和模型</small><span class="arrow">↗</span></button><button class="quick" data-view="workspace"><span class="quick-icon">▱</span><strong>整理工作区</strong><small>选择资料文件夹，继续已有学习</small><span class="arrow">↗</span></button></div>
+      <div class="location"><div><strong>应用数据目录</strong><p id="home">正在读取…</p></div><button id="choose-home">更换目录</button></div>
+      <p class="muted">应用数据与学习资料分开保存。更换目录会打开另一份数据，不会自动搬移旧资料。</p>
+    </section>
+    <section id="workspace" class="view" hidden>
+      <p class="eyebrow">YOUR MATERIALS, IN CONTEXT</p><h1>工作区</h1><p class="intro">把一门课程、一个项目的资料和对话放在一起。</p>
+      <div class="section-toolbar"><p>工作区资料与学习进度分别保存。</p><button class="primary" id="add-workspace" disabled>＋ 选择资料文件夹</button></div>
+      <div id="workspaces" class="workspace-list"><p class="empty">启动应用后，可以查看或添加工作区。</p></div>
+      <div class="note">账号设置、模型凭据和记忆由各工作区共享。Skills、MCP 与知识库可在「工作区设置」中分别分配。</div>
+      <button data-section="workspaces" disabled>打开工作区设置 ↗</button>
+    </section>
+    <section id="settings" class="view" hidden>
+      <p class="eyebrow">MAKE IT YOURS</p><h1>配置与权限</h1><p class="intro">在应用里管理连接、工具与工作区资源。</p>
+      <div class="settings-list">
+        <button data-section="providers" disabled><div><strong>模型服务商</strong><small>配置地址、密钥并测试连接</small></div><span>↗</span></button>
+        <button data-section="models" disabled><div><strong>语言模型</strong><small>选择聊天模型与模型参数</small></div><span>↗</span></button>
+        <button data-section="tools" disabled><div><strong>工具与执行权限</strong><small>管理可调用工具、命令和扩展配置</small></div><span>↗</span></button>
+        <button data-section="workspaces" disabled><div><strong>工作区与资源分配</strong><small>分配 Skills、MCP 服务、知识库</small></div><span>↗</span></button>
+        <button data-section="status" disabled><div><strong>运行状态</strong><small>查看后端诊断与资源占用</small></div><span>↗</span></button>
+      </div>
+      <div class="note"><strong>当前权限范围</strong><p>桌面版沿用 DeepTutor 的权限规则。生成文件通常写入 outputs；写入资料目录中的其他位置需要确认。Windows 本机代码执行属于「尽力限制」，不等于操作系统沙箱。外部 MCP 服务的文件和账号权限需单独配置。</p></div>
+    </section>
+    <section id="logs" class="view" hidden><p class="eyebrow">WHEN SOMETHING NEEDS ATTENTION</p><h1>启动日志</h1><p class="intro">遇到启动问题时，先在这里查看原因。</p><button id="refresh-logs">刷新日志</button><pre id="log-output">尚无启动日志。</pre><p class="muted">日志可能包含服务地址等个人配置，分享前请检查内容。</p></section>
+    <div id="message" role="status" aria-live="polite" hidden></div>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
