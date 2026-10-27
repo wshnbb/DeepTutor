@@ -86,7 +86,7 @@ async function refresh() {
     if (phase === 'ready') {
       if (openWhenReady) {
         openWhenReady = false;
-        await command('open_app', { section: 'chat', workspaceId: null });
+        await command('open_app', { section: 'chat', workspaceId: null, automatic: true });
         showSettings();
       }
       if (!workspacesLoaded) { workspacesLoaded = true; await loadWorkspaces(); }

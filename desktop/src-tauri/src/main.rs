@@ -8,9 +8,11 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tauri::{Manager, State, Url, WebviewUrl, WebviewWindow};
 use tauri::menu::{MenuBuilder, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
 #[derive(Default, Deserialize, Serialize)]
 struct Preferences { home: PathBuf }
@@ -24,6 +26,8 @@ struct Status {
     home: String,
     message: String,
     frontend_url: Option<String>,
+    backgrounded: bool,
+    tray_available: bool,
 }
 
 struct Session {
@@ -40,6 +44,97 @@ struct Session {
 
 struct Desktop(Mutex<Session>);
 
+#[derive(Default)]
+struct Lifecycle {
+    backgrounded: AtomicBool,
+    quitting: AtomicBool,
+    opening: AtomicBool,
+}
+
+fn focus_window(window: &WebviewWindow) -> Result<(), String> {
+    window.show().map_err(|e| e.to_string())?;
+    window.unminimize().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())
+}
+
+fn update_tray(app: &tauri::AppHandle, phase: &str) {
+    let lifecycle = app.state::<Lifecycle>();
+    let text = if lifecycle.quitting.load(Ordering::SeqCst) { "正在退出" }
+        else { match phase { "ready" => "正在运行", "starting" => "正在启动", "error" => "启动失败", _ => "服务已停止" } };
+    let background = if lifecycle.backgrounded.load(Ordering::SeqCst) { " · 后台" } else { "" };
+    if let Some(tray) = app.tray_by_id("deeptutor") {
+        let _ = tray.set_tooltip(Some(format!("DeepTutor · {text}{background}")));
+    }
+}
+
+fn refresh_tray(app: &tauri::AppHandle) {
+    let state = app.state::<Desktop>();
+    if let Ok(mut session) = state.0.try_lock() {
+        let phase = status(&mut session).phase;
+        drop(session);
+        update_tray(app, phase);
+    };
+}
+
+fn background_application(app: &tauri::AppHandle) -> Result<(), String> {
+    if app.tray_by_id("deeptutor").is_none() { return Err("托盘入口不可用，应用将退出。".into()); }
+    let lifecycle = app.state::<Lifecycle>();
+    lifecycle.backgrounded.store(true, Ordering::SeqCst);
+    for window in app.webview_windows().values() { window.hide().map_err(|e| e.to_string())?; }
+    refresh_tray(app);
+    Ok(())
+}
+
+fn request_quit(app: &tauri::AppHandle) {
+    let lifecycle = app.state::<Lifecycle>();
+    if lifecycle.quitting.swap(true, Ordering::SeqCst) { return; }
+    update_tray(app, "stopped");
+    let app = app.clone();
+    // Never block the Windows event loop while waiting for Python/Node to stop.
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<Desktop>();
+        if let Ok(mut session) = state.0.lock() { let _ = stop(&mut session); }
+        app.exit(0);
+    });
+}
+
+fn restore_application(app: &tauri::AppHandle) {
+    if app.state::<Lifecycle>().quitting.load(Ordering::SeqCst) { return; }
+    app.state::<Lifecycle>().backgrounded.store(false, Ordering::SeqCst);
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let running = {
+            let state = app.state::<Desktop>();
+            let mut session = match state.0.lock() { Ok(value) => value, Err(_) => return };
+            status(&mut session).phase == "ready"
+        };
+        if app.state::<Lifecycle>().quitting.load(Ordering::SeqCst) { return; }
+        if running {
+            if let Some(tutor) = app.get_webview_window("tutor") {
+                let _ = focus_window(&tutor);
+                if let Some(settings) = app.get_webview_window("main") { let _ = settings.hide(); }
+            } else if open_tutor(&app, "chat", None, false).is_err() {
+                if let Some(window) = app.get_webview_window("main") { let _ = focus_window(&window); }
+            }
+        } else if let Some(window) = app.get_webview_window("main") {
+            // Keep the current startup/error view instead of replacing it with settings.
+            let _ = focus_window(&window);
+        }
+        refresh_tray(&app);
+    });
+}
+
+fn desktop_menu_action(app: &tauri::AppHandle, id: &str) {
+    if app.state::<Lifecycle>().quitting.load(Ordering::SeqCst) { return; }
+    match id {
+        "desktop-open" => restore_application(app),
+        "desktop-settings" => { let _ = reveal_settings(app); }
+        "desktop-background" => { if background_application(app).is_err() { request_quit(app); } }
+        "desktop-quit" => request_quit(app),
+        _ => {}
+    }
+}
+
 // Opt-in diagnostics for the disposable CI child process. Ordinary launches
 // never open a debugging port. Programmatic options also work on elevated CI.
 fn test_browser_args() -> Option<String> {
@@ -53,21 +148,23 @@ fn manager_only(window: &WebviewWindow) -> Result<(), String> {
 }
 
 fn reveal_settings(app: &tauri::AppHandle) -> Result<(), String> {
+    if app.state::<Lifecycle>().quitting.load(Ordering::SeqCst) { return Ok(()); }
+    app.state::<Lifecycle>().backgrounded.store(false, Ordering::SeqCst);
     let window = app.get_webview_window("main").ok_or("Missing desktop settings")?;
     // This event is evaluated only in the bundled, trusted settings document.
     window.eval("window.dispatchEvent(new Event('desktop-settings'))").map_err(|e| e.to_string())?;
-    window.show().map_err(|e| e.to_string())?;
-    window.unminimize().map_err(|e| e.to_string())?;
-    window.set_focus().map_err(|e| e.to_string())
+    focus_window(&window)?;
+    refresh_tray(app);
+    Ok(())
 }
 
 #[tauri::command]
 fn show_settings(window: WebviewWindow, app: tauri::AppHandle, startup_error: Option<bool>) -> Result<(), String> {
     manager_only(&window)?;
     if startup_error == Some(true) {
-        window.show().map_err(|e| e.to_string())?;
-        window.unminimize().map_err(|e| e.to_string())?;
-        window.set_focus().map_err(|e| e.to_string())
+        if app.state::<Lifecycle>().backgrounded.load(Ordering::SeqCst)
+            || app.state::<Lifecycle>().quitting.load(Ordering::SeqCst) { return Ok(()); }
+        focus_window(&window)
     } else { reveal_settings(&app) }
 }
 
@@ -130,6 +227,8 @@ fn status(session: &mut Session) -> Status {
         home: session.home.display().to_string(),
         message: session.last_error.clone(),
         frontend_url: info.map(|info| info.frontend_url),
+        backgrounded: false,
+        tray_available: false,
     }
 }
 
@@ -146,30 +245,38 @@ fn stop(session: &mut Session) -> Result<(), String> {
             let _ = child.kill();
         }
         let _ = child.wait();
-        result.map_err(|e| e.to_string())?;
+        // Ownership cleanup still completes when writing the stop marker failed.
+        let _ = result;
+    }
+    for extension in ["json", "stop", "gate"] {
+        let _ = fs::remove_file(session.control.join(format!("{}.{}", session.instance, extension)));
     }
     Ok(())
 }
 
 #[tauri::command]
-fn service_status(window: WebviewWindow, state: State<Desktop>) -> Result<Status, String> {
+fn service_status(window: WebviewWindow, state: State<Desktop>, app: tauri::AppHandle) -> Result<Status, String> {
     manager_only(&window)?;
     let mut session = state.inner().0.lock().map_err(|e| e.to_string())?;
-    Ok(status(&mut session))
+    let mut result = status(&mut session);
+    drop(session);
+    result.backgrounded = app.state::<Lifecycle>().backgrounded.load(Ordering::SeqCst);
+    result.tray_available = app.tray_by_id("deeptutor").is_some();
+    update_tray(&app, result.phase);
+    Ok(result)
 }
 
-#[tauri::command]
-fn start_service(window: WebviewWindow, state: State<Desktop>) -> Result<Status, String> {
-    manager_only(&window)?;
-    let mut session = state.inner().0.lock().map_err(|e| e.to_string())?;
-    if session.child.is_some() { return Ok(status(&mut session)); }
+fn start(session: &mut Session) -> Result<(), String> {
+    // Reap an exited runner before deciding that a service is already running.
+    let _ = status(session);
+    if session.child.is_some() { return Ok(()); }
     fs::create_dir_all(&session.home).map_err(|e| e.to_string())?;
     fs::create_dir_all(&session.control).map_err(|e| e.to_string())?;
     session.instance = uuid::Uuid::new_v4().to_string();
     session.last_error.clear();
     let gate = session.control.join(format!("{}.gate", session.instance));
     let log = OpenOptions::new().create(true).truncate(true).write(true).open(&session.log).map_err(|e| e.to_string())?;
-    let mut command = runtime_command(&session)?;
+    let mut command = runtime_command(session)?;
     command.arg("serve").arg("--home").arg(&session.home)
         .arg("--control").arg(&session.control).arg("--instance").arg(&session.instance)
         .arg("--gate").arg(&gate).stdin(Stdio::null())
@@ -182,21 +289,42 @@ fn start_service(window: WebviewWindow, state: State<Desktop>) -> Result<Status,
     session.child = Some(child);
     session.job = Some(job);
     if let Err(error) = fs::write(gate, b"owned") {
-        let _ = stop(&mut session);
+        let _ = stop(session);
         return Err(error.to_string());
     }
-    Ok(status(&mut session))
+    Ok(())
+}
+
+#[tauri::command]
+fn start_service(window: WebviewWindow, state: State<Desktop>, app: tauri::AppHandle) -> Result<Status, String> {
+    manager_only(&window)?;
+    if app.state::<Lifecycle>().quitting.load(Ordering::SeqCst) { return Err("应用正在退出。".into()); }
+    let mut session = state.inner().0.lock().map_err(|e| e.to_string())?;
+    if app.state::<Lifecycle>().quitting.load(Ordering::SeqCst) { return Err("应用正在退出。".into()); }
+    let result = start(&mut session);
+    if let Err(error) = &result { session.last_error = error.clone(); }
+    let mut current = status(&mut session);
+    drop(session);
+    current.backgrounded = app.state::<Lifecycle>().backgrounded.load(Ordering::SeqCst);
+    current.tray_available = app.tray_by_id("deeptutor").is_some();
+    update_tray(&app, current.phase);
+    result.map(|_| current)
 }
 
 #[tauri::command]
 async fn stop_service(window: WebviewWindow, app: tauri::AppHandle) -> Result<(), String> {
     manager_only(&window)?;
+    app.state::<Lifecycle>().backgrounded.store(false, Ordering::SeqCst);
     // Programmatic service stop must not trigger the user's close-to-quit path.
     if let Some(window) = app.get_webview_window("tutor") { window.destroy().map_err(|e| e.to_string())?; }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<Desktop>();
         let mut session = state.inner().0.lock().map_err(|e| e.to_string())?;
-        stop(&mut session)
+        let result = stop(&mut session);
+        session.last_error.clear();
+        drop(session);
+        update_tray(&app, "stopped");
+        result
     }).await.map_err(|e| e.to_string())?
 }
 
@@ -262,8 +390,22 @@ fn section_path(section: &str, workspace_id: Option<&str>) -> Result<String, Str
 }
 
 #[tauri::command]
-async fn open_app(window: WebviewWindow, app: tauri::AppHandle, section: String, workspace_id: Option<String>) -> Result<(), String> {
+async fn open_app(window: WebviewWindow, app: tauri::AppHandle, section: String, workspace_id: Option<String>, automatic: Option<bool>) -> Result<(), String> {
     manager_only(&window)?;
+    open_tutor(&app, &section, workspace_id.as_deref(), automatic.unwrap_or(false))
+}
+
+struct Opening<'a>(&'a AtomicBool);
+impl Drop for Opening<'_> {
+    fn drop(&mut self) { self.0.store(false, Ordering::SeqCst); }
+}
+
+fn open_tutor(app: &tauri::AppHandle, section: &str, workspace_id: Option<&str>, automatic: bool) -> Result<(), String> {
+    let lifecycle = app.state::<Lifecycle>();
+    if lifecycle.quitting.load(Ordering::SeqCst) { return Err("应用正在退出。".into()); }
+    if !automatic { lifecycle.backgrounded.store(false, Ordering::SeqCst); }
+    if lifecycle.opening.swap(true, Ordering::SeqCst) { return Ok(()); }
+    let _opening = Opening(&lifecycle.opening);
     // Never retain the supervisor lock across window creation/COM callbacks.
     let (info, browser_data) = {
         let state = app.state::<Desktop>();
@@ -272,22 +414,25 @@ async fn open_app(window: WebviewWindow, app: tauri::AppHandle, section: String,
         (ready(&session).ok_or("Missing service endpoints")?, session.control.parent().ok_or("Missing state directory")?.join("webview"))
     };
     let base = endpoint(&info.frontend_url).ok_or("Invalid service origin")?;
-    let url = base.join(&section_path(&section, workspace_id.as_deref())?).map_err(|e| e.to_string())?;
+    let url = base.join(&section_path(section, workspace_id)?).map_err(|e| e.to_string())?;
     if let Some(tutor) = app.get_webview_window("tutor") {
         tutor.navigate(url).map_err(|e| e.to_string())?;
-        tutor.show().map_err(|e| e.to_string())?;
-        tutor.set_focus().map_err(|e| e.to_string())?;
-        return window.hide().map_err(|e| e.to_string());
+    } else {
+        let port = base.port();
+        let mut builder = tauri::WebviewWindowBuilder::new(app, "tutor", WebviewUrl::External(url))
+            .title("DeepTutor").visible(false).inner_size(1320.0, 900.0).min_inner_size(900.0, 640.0)
+            .data_directory(browser_data)
+            .on_navigation(move |url| url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port() == port);
+        if let Some(args) = test_browser_args() { builder = builder.additional_browser_args(&args); }
+        builder.build().map_err(|e| e.to_string())?;
     }
-    let port = base.port();
-    let mut builder = tauri::WebviewWindowBuilder::new(&app, "tutor", WebviewUrl::External(url))
-        .title("DeepTutor").inner_size(1320.0, 900.0).min_inner_size(900.0, 640.0)
-        .data_directory(browser_data)
-        .on_navigation(move |url| url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port() == port);
-    if let Some(args) = test_browser_args() { builder = builder.additional_browser_args(&args); }
-    let tutor = builder.build().map_err(|e| e.to_string())?;
-    tutor.set_focus().map_err(|e| e.to_string())?;
-    window.hide().map_err(|e| e.to_string())?;
+    if lifecycle.quitting.load(Ordering::SeqCst) { return Ok(()); }
+    // A close while the services were starting takes precedence over auto-open.
+    if !lifecycle.backgrounded.load(Ordering::SeqCst) {
+        if let Some(tutor) = app.get_webview_window("tutor") { focus_window(&tutor)?; }
+        if let Some(settings) = app.get_webview_window("main") { settings.hide().map_err(|e| e.to_string())?; }
+    }
+    refresh_tray(app);
     Ok(())
 }
 
@@ -307,9 +452,7 @@ fn read_logs(window: WebviewWindow, state: State<Desktop>) -> Result<String, Str
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            if let Some(window) = app.get_webview_window("tutor") {
-                let _ = window.show(); let _ = window.unminimize(); let _ = window.set_focus();
-            } else { let _ = reveal_settings(app); }
+            if app.try_state::<Lifecycle>().is_some() { restore_application(app); }
         }))
         .setup(|app| {
             let root = match std::env::var_os("DEEPTUTOR_DESKTOP_STATE_DIR") {
@@ -327,38 +470,57 @@ fn main() {
                 control: root.join("control"), runtime: app.path().resource_dir()?.join("runtime"),
                 log: root.join("desktop.log"), preferences_file, home, last_error: String::new(),
             })));
+            app.manage(Lifecycle::default());
             let settings = MenuItem::with_id(app, "desktop-settings", "桌面设置", true, Some("Ctrl+Shift+D"))?;
-            let menu = MenuBuilder::new(app).item(&settings).text("desktop-quit", "退出").build()?;
+            let menu = MenuBuilder::new(app).text("desktop-open", "显示学习界面").item(&settings)
+                .text("desktop-background", "后台运行").text("desktop-quit", "退出 DeepTutor").build()?;
             app.set_menu(menu)?;
+            let tray_menu = MenuBuilder::new(app).text("desktop-open", "打开 DeepTutor")
+                .item(&settings).separator().text("desktop-quit", "退出 DeepTutor").build()?;
+            TrayIconBuilder::with_id("deeptutor")
+                .icon(app.default_window_icon().ok_or("Missing application icon")?.clone())
+                .tooltip("DeepTutor · 正在启动").menu(&tray_menu).show_menu_on_left_click(false)
+                .on_tray_icon_event(|tray, event| {
+                    if matches!(event, TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. }) {
+                        restore_application(tray.app_handle());
+                    }
+                }).build(app)?;
             let mut window = tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
                 .data_directory(root.join("webview"));
             if let Some(args) = test_browser_args() { window = window.additional_browser_args(&args); }
             window.build()?;
             Ok(())
         })
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "desktop-settings" => { let _ = reveal_settings(app); }
-            "desktop-quit" => app.exit(0),
-            _ => {}
-        })
+        .on_menu_event(|app, event| desktop_menu_action(app, event.id().as_ref()))
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" && window.app_handle().get_webview_window("tutor").is_some() {
-                    api.prevent_close();
+                api.prevent_close();
+                let app = window.app_handle();
+                if app.state::<Lifecycle>().quitting.load(Ordering::SeqCst) { return; }
+                let tutor_visible = app.get_webview_window("tutor").map(|tutor| tutor.is_visible().unwrap_or(false)).unwrap_or(false);
+                if window.label() == "main" && tutor_visible {
                     let _ = window.hide();
-                } else {
-                    // The original application is the primary window. Closing it
-                    // exits even if its secondary settings window is still open.
-                    window.app_handle().exit(0);
-                }
+                } else if background_application(app).is_err() { request_quit(app); }
             }
         })
         .invoke_handler(tauri::generate_handler![service_status, start_service, stop_service, choose_home, workspaces, open_app, read_logs, show_settings])
         .build(tauri::generate_context!()).expect("Could not initialize DeepTutor Desktop")
         .run(|app, event| {
-            if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
-                let state = app.state::<Desktop>();
-                if let Ok(mut session) = state.inner().0.lock() { let _ = stop(&mut session); };
+            match event {
+                tauri::RunEvent::ExitRequested { api, .. } => {
+                    if let Some(lifecycle) = app.try_state::<Lifecycle>() {
+                        if !lifecycle.quitting.load(Ordering::SeqCst) {
+                            api.prevent_exit();
+                            request_quit(app);
+                        }
+                    }
+                }
+                tauri::RunEvent::Exit => {
+                    if let Some(state) = app.try_state::<Desktop>() {
+                        if let Ok(mut session) = state.inner().0.lock() { let _ = stop(&mut session); };
+                    }
+                }
+                _ => {}
             }
         });
 }

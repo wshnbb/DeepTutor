@@ -1,6 +1,6 @@
 [package]
 name = "deeptutor-desktop"
-version = "0.1.2"
+version = "0.1.3"
 description = "Windows desktop launcher for DeepTutor"
 edition = "2021"
 license = "Apache-2.0"
@@ -10,7 +10,7 @@ rust-version = "1.85"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

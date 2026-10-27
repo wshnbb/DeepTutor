@@ -9,6 +9,7 @@
     <h1 id="startup-title">DeepTutor</h1><p id="startup-detail">正在启动，随后进入学习界面…</p>
     <div class="actions"><button id="startup-retry" hidden>重新启动</button><button id="startup-logs" hidden>查看启动日志</button></div>
     <button id="startup-settings">桌面设置</button>
+    <p class="muted">关闭窗口后会在托盘继续运行；右键托盘图标选择「退出 DeepTutor」可完全退出。</p>
   </section>
   <aside class="sidebar">
     <a class="brand" href="#"><span class="mark">D<span>t</span></span><strong>DeepTutor<small>DESKTOP</small></strong></a>
@@ -17,7 +18,7 @@
     <button class="nav" data-view="workspace">工作区<span>02</span></button>
     <button class="nav" data-view="settings">配置与权限<span>03</span></button>
     <button class="nav" data-view="logs">启动日志<span>04</span></button>
-    <div class="sidebar-bottom"><span class="dot" id="rail-dot"></span><span id="rail-state">尚未启动</span><small>Windows · 0.1.2 Preview</small></div>
+    <div class="sidebar-bottom"><span class="dot" id="rail-dot"></span><span id="rail-state">尚未启动</span><small>Windows · 0.1.3 Preview</small></div>
   </aside>
   <main>
     <header><span id="breadcrumb">个人空间 / 概览</span><span class="local-badge">本机运行</span></header>
@@ -34,6 +35,7 @@
       <div class="quick-grid"><button class="quick" data-section="providers" disabled><span class="quick-icon">✳</span><strong>连接模型</strong><small>配置服务商、密钥和模型</small><span class="arrow">↗</span></button><button class="quick" data-view="workspace"><span class="quick-icon">▱</span><strong>整理工作区</strong><small>选择资料文件夹，继续已有学习</small><span class="arrow">↗</span></button></div>
       <div class="location"><div><strong>应用数据目录</strong><p id="home">正在读取…</p></div><button id="choose-home">更换目录</button></div>
       <p class="muted">应用数据与学习资料分开保存。更换目录会打开另一份数据，不会自动搬移旧资料。</p>
+      <p class="muted">关闭学习窗口会隐藏到系统托盘，服务继续运行。单击托盘图标或再次打开快捷方式可返回原页面；右键托盘选择「退出 DeepTutor」会停止服务并退出。</p>
     </section>
     <section id="workspace" class="view" hidden>
       <p class="eyebrow">YOUR MATERIALS, IN CONTEXT</p><h1>工作区</h1><p class="intro">把一门课程、一个项目的资料和对话放在一起。</p>

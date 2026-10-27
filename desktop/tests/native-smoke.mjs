@@ -44,7 +44,18 @@ const control = (action, outputPath) => {
   const args = ['-NoProfile', '-File', 'tests/window-control.ps1', '-DesktopProcessId', String(native.pid), '-Action', action];
   if (outputPath) args.push('-OutputPath', outputPath);
   const output = execFileSync('pwsh.exe', args, { encoding: 'utf8', windowsHide: true });
-  return action === 'Snapshot' ? JSON.parse(output) : undefined;
+  return ['Snapshot', 'Processes'].includes(action) ? JSON.parse(output) : undefined;
+};
+const desktopStatus = () => settingsPage.evaluate(() => window.__TAURI__.core.invoke('service_status'));
+const assertChildrenStopped = async (processes) => {
+  const deadline = Date.now() + 20000;
+  let remaining = [];
+  while (Date.now() < deadline) {
+    remaining = JSON.parse(execFileSync('python', ['-c', 'import json,sys,psutil; print(json.dumps([p for p in json.loads(sys.argv[1]) if psutil.pid_exists(p["pid"])]))', JSON.stringify(processes)], { encoding: 'utf8', windowsHide: true }));
+    if (!remaining.length) return;
+    await wait(500);
+  }
+  assert.fail(`Owned desktop processes survived exit: ${JSON.stringify(remaining)}`);
 };
 const waitForWindow = async (label, visible) => {
   const deadline = Date.now() + 15000;
@@ -112,6 +123,7 @@ try {
   control('CaptureTutor', path.join(evidence, 'native-application-window.png'));
   await waitForWindow('main', false);
   await waitForWindow('tutor', true);
+  assert.equal((await desktopStatus()).tray_available, true, 'Native tray icon was not registered');
   console.log('PASS: startup automatically opens the original chat, sidebar and learning tools.');
 
   control('Settings');
@@ -121,7 +133,35 @@ try {
   await page.screenshot({ path: path.join(evidence, 'native-workspaces.png') });
   control('CloseSettings');
   await waitForWindow('main', false);
+  await waitForWindow('tutor', true);
   assert.equal(native.exitCode, null, 'Closing secondary settings quit the application');
+
+  // Closing the learning window retains the exact WebView and its page, so
+  // drafts and navigation survive restoration rather than being loaded anew.
+  await tutor.evaluate(() => { window.__retainedDraft = 'unsent learning draft'; });
+  const retainedURL = tutor.url();
+  const originalEndpoints = await readEndpoints();
+  control('CloseTutor');
+  await waitForWindow('tutor', false);
+  await waitForWindow('main', false);
+  assert.equal(native.exitCode, null, 'Close should keep the desktop in its tray');
+  assert.equal((await desktopStatus()).backgrounded, true);
+  assert.equal((await fetch(originalEndpoints.backend_url)).ok, true, 'Backgrounding stopped the backend');
+  control('Restore');
+  await waitForWindow('tutor', true);
+  assert.equal(tutor.url(), retainedURL);
+  assert.equal(await tutor.evaluate(() => window.__retainedDraft), 'unsent learning draft');
+
+  control('Background');
+  await waitForWindow('tutor', false);
+  const duplicate = launch();
+  const [duplicateCode] = await Promise.race([once(duplicate, 'exit'), wait(15000).then(() => { throw new Error('Second launch did not hand over to the existing instance'); })]);
+  assert.equal(duplicateCode, 0);
+  await waitForWindow('tutor', true);
+  assert.deepEqual(await readEndpoints(), originalEndpoints, 'Second launch created another service instance');
+  assert.equal(await tutor.evaluate(() => window.__retainedDraft), 'unsent learning draft');
+  console.log('PASS: close-to-tray, restore without reload, and second-launch handover preserve the existing processes and page.');
+
   control('Settings');
   await waitForWindow('main', true);
   await page.getByRole('button', { name: '概览 01', exact: true }).click();
@@ -130,16 +170,32 @@ try {
   console.log('PASS: native menu opens secondary settings; settings can close and stop services.');
 
   await page.getByRole('button', { name: '启动并打开应用 ↗', exact: true }).click();
-  await page.locator('#status').filter({ hasText: '正在运行' }).waitFor({ timeout: 240000 });
+  await page.locator('#status').filter({ hasText: '正在启动' }).waitFor({ timeout: 10000 });
+  control('CloseSettings');
   await waitForWindow('main', false);
+  await page.locator('#status').filter({ hasText: '正在运行' }).waitFor({ timeout: 240000 });
+  const hiddenReadyDeadline = Date.now() + 15000;
+  while (!(await windowSnapshot()).some((item) => item.label === 'tutor') && Date.now() < hiddenReadyDeadline) await wait(250);
+  await waitForWindow('main', false);
+  await waitForWindow('tutor', false);
+  assert.equal((await desktopStatus()).backgrounded, true);
+  control('Restore');
+  await waitForWindow('tutor', true);
+  console.log('PASS: closing while services start keeps the completed application in the background until restored.');
   let endpoints = await readEndpoints();
   assert.deepEqual(errors, [], 'Desktop page has JavaScript errors');
+  const ownedProcesses = control('Processes');
+  assert.ok(ownedProcesses.some((item) => /python/i.test(item.Name)));
+  assert.ok(ownedProcesses.some((item) => /node/i.test(item.Name)));
+  assert.ok(ownedProcesses.some((item) => /msedgewebview2/i.test(item.Name)));
   const exited = once(native, 'exit');
-  control('CloseTutor');
-  const exitResult = await Promise.race([exited, wait(30000).then(() => { throw new Error('Closing original UI did not exit the desktop'); })]);
+  control('Quit');
+  const exitResult = await Promise.race([exited, wait(30000).then(() => { throw new Error('Explicit exit did not stop the desktop'); })]);
   assert.equal(exitResult[0], 0);
   await assertStopped(endpoints);
-  console.log('PASS: closing the original application exits cleanly and stops both services.');
+  await assertChildrenStopped(ownedProcesses);
+  await writeFile(path.join(evidence, 'native-lifecycle.json'), JSON.stringify({ tray_registered: true, close_to_tray: true, restore_without_reload: true, single_instance: true, background_startup: true, explicit_exit: true, owned_processes_removed: ownedProcesses }, null, 2));
+  console.log('PASS: explicit exit removes the desktop, Python, Node and WebView2 child processes and closes both ports.');
 
   await browser.close(); browser = undefined;
   native = launch();
@@ -178,10 +234,17 @@ try {
   assert.equal(await errorPage.locator('#startup-detail').innerText(), failureDetail, 'Polling replaced the startup error');
   assert.equal(await errorPage.locator('#overview').isVisible(), false, 'Startup failure fell back to the old dashboard');
   await errorPage.screenshot({ path: path.join(evidence, 'native-startup-error.png') });
-  const invalidExited = once(native, 'exit');
   control('CloseSettings');
-  await Promise.race([invalidExited, wait(15000).then(() => { throw new Error('Startup error window did not close'); })]);
-  console.log('PASS: startup failure shows a stable error screen with retry/log buttons, without the dashboard.');
+  await waitForWindow('main', false);
+  assert.equal(native.exitCode, null);
+  assert.equal((await desktopStatus()).tray_available, true);
+  control('Restore');
+  await waitForWindow('main', true);
+  assert.equal(await errorPage.locator('#startup-detail').innerText(), failureDetail);
+  const invalidExited = once(native, 'exit');
+  control('Quit');
+  await Promise.race([invalidExited, wait(15000).then(() => { throw new Error('Startup error application did not exit'); })]);
+  console.log('PASS: startup failures retain a stable error view, can be hidden/restored from the tray, and exit explicitly.');
 
   await browser.close().catch(() => {}); browser = undefined;
   const uninstall = spawn(path.join(install, 'uninstall.exe'), ['/S'], { windowsHide: true });

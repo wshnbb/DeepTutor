@@ -26,7 +26,15 @@ buttons; the desktop settings dashboard is a secondary menu destination.
 Use the native **桌面设置** menu (or **Ctrl+Shift+D**) to open the secondary desktop
 settings window for application data location, service controls and a Windows
 workspace folder picker. Closing settings returns to the original application.
-Closing the original application exits the desktop and stops its owned services.
+Closing the learning window hides the application to its system tray icon and
+keeps its services running. Left-click the tray icon, choose **打开 DeepTutor**
+from its menu, or open the shortcut again to restore the same page. Reopening
+uses the existing desktop and service processes. **退出 DeepTutor** in either
+native menu stops the owned services and exits the application completely.
+Closing settings alone leaves the visible learning window open. If it is the
+only visible window (including startup failures), closing it hides to the tray.
+The tray tooltip reports starting, running, stopped or failed, and background
+state. A close during startup keeps the application in the background when ready.
 **停止服务** leaves settings open so you can change the data location and restart.
 A launcher crash also stops the owned process tree via a Windows Job Object.
 A graceful stop gives DeepTutor time to finish database writes.
@@ -73,8 +81,10 @@ registration, loopback listener addresses and graceful shutdown before bundling.
 It also tests the native URL guards and the private Python control protocol.
 After bundling, CI installs the NSIS package in its disposable Windows account,
 verifies automatic startup into the original chat, exercises the actual native
-settings menu, hides settings, stops/restarts services and closes the primary
-window. It separately terminates a fresh desktop to verify Job Object cleanup. The
+settings menu, hides/restores the primary window, checks retained page state and
+single-instance reopening, and stops/restarts services. It tests background
+startup, explicit exit and the disappearance of owned child processes. It
+separately terminates a fresh desktop to verify Job Object cleanup. The
 test uses an isolated `DEEPTUTOR_DESKTOP_STATE_DIR`; normal launches use the
 standard per-user application data directory. Native screenshots are uploaded
 as a separate test-evidence artifact.
