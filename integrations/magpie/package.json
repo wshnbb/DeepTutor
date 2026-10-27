@@ -1,0 +1,10 @@
+{
+  "name": "magpie-agent-deeptutor",
+  "version": "0.1.0",
+  "description": "Configure DeepTutor Desktop from Magpie's Agents page",
+  "type": "module",
+  "license": "MIT",
+  "files": ["agent.js", "binding.js", "install.ps1", "README.md"],
+  "scripts": { "test": "node --test tests/integration.test.mjs" },
+  "magpie": { "agent": "./agent.js" }
+}
