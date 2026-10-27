@@ -53,7 +53,7 @@ if ($Action -eq 'Snapshot') {
   exit 0
 }
 $menuAction = $Action -in @('Settings','Restore','Background','Quit')
-$title = if ($Action -eq 'CloseSettings' -or ($menuAction -and -not ($windows | Where-Object title -eq 'DeepTutor'))) { 'DeepTutor 桌面设置' } else { 'DeepTutor' }
+$title = if ($Action -eq 'CloseSettings' -or $menuAction) { 'DeepTutor 桌面设置' } else { 'DeepTutor' }
 $target = @($windows | Where-Object { $_.title -eq $title })
 if ($target.Count -ne 1) { throw "Expected one window: $title" }
 if ($Action -eq 'CaptureTutor') {
