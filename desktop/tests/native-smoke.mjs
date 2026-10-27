@@ -22,46 +22,29 @@ assert.equal(installCode, 0, 'Installer failed');
 const executables = (await readdir(install)).filter((name) => name.endsWith('.exe') && !name.toLowerCase().includes('uninstall'));
 assert.equal(executables.length, 1, 'Expected one desktop executable');
 
-const native = spawn(path.join(install, executables[0]), [], {
+const launch = () => spawn(path.join(install, executables[0]), [], {
   env: { ...process.env, DEEPTUTOR_DESKTOP_STATE_DIR: state, DEEPTUTOR_DESKTOP_TEST_CDP_PORT: '9223' },
   windowsHide: false, stdio: 'ignore',
 });
-let browser;
-let connectionError;
-try {
-  const deadline = Date.now() + 60000;
+let native = launch();
+const control = (action) => {
+  const output = execFileSync('pwsh.exe', ['-NoProfile', '-File', 'tests/window-control.ps1', '-DesktopProcessId', String(native.pid), '-Action', action], { encoding: 'utf8', windowsHide: true });
+  return action === 'Snapshot' ? JSON.parse(output) : undefined;
+};
+const waitForWindow = async (title, visible) => {
+  const deadline = Date.now() + 15000;
   while (Date.now() < deadline) {
-    try { browser = await chromium.connectOverCDP('http://127.0.0.1:9223', { timeout: 3000 }); break; }
-    catch (error) { connectionError = error.message; if (native.exitCode !== null) throw new Error(`Desktop exited: ${native.exitCode}`); await wait(500); }
+    if (control('Snapshot').some((item) => item.title === title && item.visible === visible)) return;
+    await wait(250);
   }
-  assert.ok(browser, `Desktop WebView2 debugging endpoint did not start: ${connectionError}`);
-  const context = browser.contexts()[0];
-  const page = context.pages()[0] || await context.waitForEvent('page', { timeout: 30000 });
-  const errors = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  await page.getByRole('button', { name: '启动并打开应用 ↗', exact: true }).waitFor({ timeout: 30000 });
-  await page.getByRole('button', { name: '启动并打开应用 ↗', exact: true }).click();
-  await page.locator('#status').filter({ hasText: '正在运行' }).waitFor({ timeout: 240000 });
-  await page.getByRole('button', { name: '工作区 02', exact: true }).click();
-  await page.locator('.workspace-row').first().waitFor({ timeout: 60000 });
-  await page.screenshot({ path: path.join(evidence, 'native-workspaces.png') });
-  const tutor = context.pages().find((item) => item !== page && /^http:\/\/127\.0\.0\.1:\d+\//.test(item.url()));
-  assert.ok(tutor, 'Tutoring window did not open');
-  assert.ok((await tutor.locator('body').innerText()).trim(), 'Tutoring window is blank');
-  await page.getByRole('button', { name: '概览 01', exact: true }).click();
-  await page.getByRole('button', { name: '停止服务', exact: true }).click();
-  await page.locator('#status').filter({ hasText: '尚未启动' }).waitFor({ timeout: 40000 });
-  console.log('PASS: installed desktop opens its tutor window and stops its real services.');
-
-  await page.getByRole('button', { name: '启动并打开应用 ↗', exact: true }).click();
-  await page.locator('#status').filter({ hasText: '正在运行' }).waitFor({ timeout: 240000 });
+  assert.fail(`Window visibility mismatch: ${title}, ${visible}`);
+};
+const readEndpoints = async () => {
   const files = (await readdir(path.join(state, 'control'))).filter((name) => name.endsWith('.json'));
   assert.equal(files.length, 1);
-  const endpoints = JSON.parse(await readFile(path.join(state, 'control', files[0]), 'utf8'));
-  await page.screenshot({ path: path.join(evidence, 'native-overview.png') });
-  assert.deepEqual(errors, [], 'Desktop page has JavaScript errors');
-  native.kill();
-  await once(native, 'exit');
+  return JSON.parse(await readFile(path.join(state, 'control', files[0]), 'utf8'));
+};
+const assertStopped = async (endpoints) => {
   for (const key of ['frontend_url', 'backend_url']) {
     const port = Number(new URL(endpoints[key]).port);
     let closed = false;
@@ -77,6 +60,76 @@ try {
     }
     assert.ok(closed, `Owned server survived desktop termination: ${key}`);
   }
+};
+let browser;
+let connectionError;
+try {
+  const deadline = Date.now() + 60000;
+  while (Date.now() < deadline) {
+    try { browser = await chromium.connectOverCDP('http://127.0.0.1:9223', { timeout: 3000 }); break; }
+    catch (error) { connectionError = error.message; if (native.exitCode !== null) throw new Error(`Desktop exited: ${native.exitCode}`); await wait(500); }
+  }
+  assert.ok(browser, `Desktop WebView2 debugging endpoint did not start: ${connectionError}`);
+  const context = browser.contexts()[0];
+  const page = context.pages()[0] || await context.waitForEvent('page', { timeout: 30000 });
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  // No Start click: opening the installed app must open the original UI itself.
+  await page.locator('#status').filter({ hasText: '正在运行' }).waitFor({ timeout: 240000 });
+  let tutor;
+  for (let attempt = 0; attempt < 120; attempt++) {
+    tutor = context.pages().find((item) => item !== page && /^http:\/\/127\.0\.0\.1:\d+\/chat/.test(item.url()));
+    if (tutor) break;
+    await wait(500);
+  }
+  assert.ok(tutor, 'Original application did not open automatically');
+  await tutor.getByRole('heading', { name: 'What would you like to learn?', exact: true }).waitFor({ timeout: 60000 });
+  await tutor.getByRole('link', { name: 'Partners', exact: true }).waitFor();
+  await tutor.getByRole('link', { name: 'Task Board', exact: true }).waitFor();
+  await waitForWindow('DeepTutor 桌面设置', false);
+  await waitForWindow('DeepTutor', true);
+  await tutor.screenshot({ path: path.join(evidence, 'native-original-chat.png') });
+  console.log('PASS: startup automatically opens the original chat, sidebar and learning tools.');
+
+  control('Settings');
+  await waitForWindow('DeepTutor 桌面设置', true);
+  await page.getByRole('button', { name: '工作区 02', exact: true }).click();
+  await page.locator('.workspace-row').first().waitFor({ timeout: 60000 });
+  await page.screenshot({ path: path.join(evidence, 'native-workspaces.png') });
+  control('CloseSettings');
+  await waitForWindow('DeepTutor 桌面设置', false);
+  assert.equal(native.exitCode, null, 'Closing secondary settings quit the application');
+  control('Settings');
+  await waitForWindow('DeepTutor 桌面设置', true);
+  await page.getByRole('button', { name: '概览 01', exact: true }).click();
+  await page.getByRole('button', { name: '停止服务', exact: true }).click();
+  await page.locator('#status').filter({ hasText: '尚未启动' }).waitFor({ timeout: 40000 });
+  console.log('PASS: native menu opens secondary settings; settings can close and stop services.');
+
+  await page.getByRole('button', { name: '启动并打开应用 ↗', exact: true }).click();
+  await page.locator('#status').filter({ hasText: '正在运行' }).waitFor({ timeout: 240000 });
+  await waitForWindow('DeepTutor 桌面设置', false);
+  let endpoints = await readEndpoints();
+  assert.deepEqual(errors, [], 'Desktop page has JavaScript errors');
+  const exited = once(native, 'exit');
+  control('CloseTutor');
+  const exitResult = await Promise.race([exited, wait(30000).then(() => { throw new Error('Closing original UI did not exit the desktop'); })]);
+  assert.equal(exitResult[0], 0);
+  await assertStopped(endpoints);
+  console.log('PASS: closing the original application exits cleanly and stops both services.');
+
+  await browser.close(); browser = undefined;
+  native = launch();
+  const restartedDeadline = Date.now() + 240000;
+  while (Date.now() < restartedDeadline) {
+    try { endpoints = await readEndpoints(); if ((await fetch(endpoints.frontend_url)).ok) break; }
+    catch { /* Wait for this fresh process's readiness file. */ }
+    await wait(500);
+  }
+  assert.equal((await fetch(endpoints.frontend_url)).ok, true, 'Fresh launch did not become ready');
+  native.kill();
+  await once(native, 'exit');
+  await assertStopped(endpoints);
   console.log('PASS: Windows Job Object cleans up both servers when the desktop is terminated.');
 } catch (error) {
   try {

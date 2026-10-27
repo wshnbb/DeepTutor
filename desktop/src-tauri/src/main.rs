@@ -10,6 +10,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{Manager, State, Url, WebviewUrl, WebviewWindow};
+use tauri::menu::{MenuBuilder, MenuItem};
 
 #[derive(Default, Deserialize, Serialize)]
 struct Preferences { home: PathBuf }
@@ -49,6 +50,21 @@ fn test_browser_args() -> Option<String> {
 
 fn manager_only(window: &WebviewWindow) -> Result<(), String> {
     if window.label() == "main" { Ok(()) } else { Err("Desktop controls are only available in the launcher.".into()) }
+}
+
+fn reveal_settings(app: &tauri::AppHandle) -> Result<(), String> {
+    let window = app.get_webview_window("main").ok_or("Missing desktop settings")?;
+    // This event is evaluated only in the bundled, trusted settings document.
+    window.eval("window.dispatchEvent(new Event('desktop-settings'))").map_err(|e| e.to_string())?;
+    window.show().map_err(|e| e.to_string())?;
+    window.unminimize().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn show_settings(window: WebviewWindow, app: tauri::AppHandle) -> Result<(), String> {
+    manager_only(&window)?;
+    reveal_settings(&app)
 }
 
 fn hidden(command: &mut Command) {
@@ -171,7 +187,8 @@ fn start_service(window: WebviewWindow, state: State<Desktop>) -> Result<Status,
 #[tauri::command]
 async fn stop_service(window: WebviewWindow, app: tauri::AppHandle) -> Result<(), String> {
     manager_only(&window)?;
-    if let Some(window) = app.get_webview_window("tutor") { let _ = window.close(); }
+    // Programmatic service stop must not trigger the user's close-to-quit path.
+    if let Some(window) = app.get_webview_window("tutor") { window.destroy().map_err(|e| e.to_string())?; }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<Desktop>();
         let mut session = state.inner().0.lock().map_err(|e| e.to_string())?;
@@ -255,7 +272,8 @@ async fn open_app(window: WebviewWindow, app: tauri::AppHandle, section: String,
     if let Some(tutor) = app.get_webview_window("tutor") {
         tutor.navigate(url).map_err(|e| e.to_string())?;
         tutor.show().map_err(|e| e.to_string())?;
-        return tutor.set_focus().map_err(|e| e.to_string());
+        tutor.set_focus().map_err(|e| e.to_string())?;
+        return window.hide().map_err(|e| e.to_string());
     }
     let port = base.port();
     let mut builder = tauri::WebviewWindowBuilder::new(&app, "tutor", WebviewUrl::External(url))
@@ -263,7 +281,9 @@ async fn open_app(window: WebviewWindow, app: tauri::AppHandle, section: String,
         .data_directory(browser_data)
         .on_navigation(move |url| url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port() == port);
     if let Some(args) = test_browser_args() { builder = builder.additional_browser_args(&args); }
-    builder.build().map_err(|e| e.to_string())?;
+    let tutor = builder.build().map_err(|e| e.to_string())?;
+    tutor.set_focus().map_err(|e| e.to_string())?;
+    window.hide().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -283,7 +303,9 @@ fn read_logs(window: WebviewWindow, state: State<Desktop>) -> Result<String, Str
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); }
+            if let Some(window) = app.get_webview_window("tutor") {
+                let _ = window.show(); let _ = window.unminimize(); let _ = window.set_focus();
+            } else { let _ = reveal_settings(app); }
         }))
         .setup(|app| {
             let root = match std::env::var_os("DEEPTUTOR_DESKTOP_STATE_DIR") {
@@ -301,20 +323,33 @@ fn main() {
                 control: root.join("control"), runtime: app.path().resource_dir()?.join("runtime"),
                 log: root.join("desktop.log"), preferences_file, home, last_error: String::new(),
             })));
+            let settings = MenuItem::with_id(app, "desktop-settings", "桌面设置", true, Some("Ctrl+Shift+D"))?;
+            let menu = MenuBuilder::new(app).item(&settings).text("desktop-quit", "退出").build()?;
+            app.set_menu(menu)?;
             let mut window = tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
                 .data_directory(root.join("webview"));
             if let Some(args) = test_browser_args() { window = window.additional_browser_args(&args); }
             window.build()?;
             Ok(())
         })
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "desktop-settings" => { let _ = reveal_settings(app); }
+            "desktop-quit" => app.exit(0),
+            _ => {}
+        })
         .on_window_event(|window, event| {
-            if window.label() == "main" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
-                let state = window.state::<Desktop>();
-                if let Ok(mut session) = state.inner().0.lock() { let _ = stop(&mut session); };
-                window.app_handle().exit(0);
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" && window.app_handle().get_webview_window("tutor").is_some() {
+                    api.prevent_close();
+                    let _ = window.hide();
+                } else {
+                    // The original application is the primary window. Closing it
+                    // exits even if its secondary settings window is still open.
+                    window.app_handle().exit(0);
+                }
             }
         })
-        .invoke_handler(tauri::generate_handler![service_status, start_service, stop_service, choose_home, workspaces, open_app, read_logs])
+        .invoke_handler(tauri::generate_handler![service_status, start_service, stop_service, choose_home, workspaces, open_app, read_logs, show_settings])
         .build(tauri::generate_context!()).expect("Could not initialize DeepTutor Desktop")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {

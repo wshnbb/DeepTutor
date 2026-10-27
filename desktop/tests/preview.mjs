@@ -15,6 +15,7 @@ window.__TAURI__ = { core: { invoke: async (name, args = {}) => {
   if (name === 'read_logs') return 'Preview: startup complete. Backend and frontend ready.';
   if (name === 'open_app') { window.__lastOpened = args; return; }
   if (name === 'choose_home') return null;
+  if (name === 'show_settings') return;
   throw new Error('Unexpected preview command: ' + name);
 } } };
 `;

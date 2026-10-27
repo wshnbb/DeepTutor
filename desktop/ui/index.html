@@ -2,24 +2,28 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DeepTutor Desktop</title><link rel="stylesheet" href="styles.css">
+  <title>DeepTutor 桌面设置</title><link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body class="booting">
+  <section id="startup" role="status" aria-live="polite">
+    <h1>DeepTutor</h1><p id="startup-detail">正在启动，随后进入学习界面…</p>
+    <button id="startup-settings">桌面设置</button>
+  </section>
   <aside class="sidebar">
     <a class="brand" href="#"><span class="mark">D<span>t</span></span><strong>DeepTutor<small>DESKTOP</small></strong></a>
-    <p class="nav-label">你的学习空间</p>
+    <p class="nav-label">桌面设置</p>
     <button class="nav active" data-view="overview">概览<span>01</span></button>
     <button class="nav" data-view="workspace">工作区<span>02</span></button>
     <button class="nav" data-view="settings">配置与权限<span>03</span></button>
     <button class="nav" data-view="logs">启动日志<span>04</span></button>
-    <div class="sidebar-bottom"><span class="dot" id="rail-dot"></span><span id="rail-state">尚未启动</span><small>Windows · 0.1.0 Preview</small></div>
+    <div class="sidebar-bottom"><span class="dot" id="rail-dot"></span><span id="rail-state">尚未启动</span><small>Windows · 0.1.1 Preview</small></div>
   </aside>
   <main>
     <header><span id="breadcrumb">个人空间 / 概览</span><span class="local-badge">本机运行</span></header>
     <section id="overview" class="view">
-      <p class="eyebrow">A SPACE TO KEEP LEARNING</p>
-      <h1>让好奇心，有个落脚点。</h1>
-      <p class="intro">你的模型、学习资料与对话，在同一个地方。</p>
+      <p class="eyebrow">DESKTOP SETTINGS</p>
+      <h1>桌面设置</h1>
+      <p class="intro">管理本机服务和数据目录。学习与模型配置请进入应用。</p>
       <div class="service-card">
         <div class="service-top"><span class="status-pill" id="status">尚未启动</span><span class="card-caption">YOUR PERSONAL LEARNING SPACE</span></div>
         <h2 id="service-title">准备好，继续学习</h2>

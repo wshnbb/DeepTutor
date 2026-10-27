@@ -14,13 +14,18 @@ dependency manifest are included. Preview installers are not code-signed.
 The installer runs for the current user and can download Microsoft's WebView2
 bootstrapper if that runtime is missing; the first installation may need internet.
 
-Start **DeepTutor Desktop**, optionally choose an application data directory,
-then click **启动并打开应用**. Configure **模型服务商** and **语言模型** in the
-existing settings pages. The **工作区** page can register an existing folder
-using Windows' native folder picker and open a new chat in that workspace.
-Closing the tutoring window leaves the launcher running. **停止服务**, closing
-the launcher, or a launcher crash stops the owned process tree via a Windows
-Job Object. A graceful stop gives DeepTutor time to finish database writes.
+Start **DeepTutor Desktop**: services start automatically and the original
+DeepTutor **/chat** interface opens as the primary window. Its existing sidebar,
+learning features, model settings and workspace controls remain the application UI.
+The brief startup screen gives way to that original interface without a Start click.
+
+Use the native **桌面设置** menu (or **Ctrl+Shift+D**) to open the secondary desktop
+settings window for application data location, service controls and a Windows
+workspace folder picker. Closing settings returns to the original application.
+Closing the original application exits the desktop and stops its owned services.
+**停止服务** leaves settings open so you can change the data location and restart.
+A launcher crash also stops the owned process tree via a Windows Job Object.
+A graceful stop gives DeepTutor time to finish database writes.
 
 The default private runtime home is under
 `%LOCALAPPDATA%/io.github.wshnbb.deeptutor/home`. The launcher's small preferences,
@@ -63,8 +68,9 @@ CI exercises the copied interpreter, real frontend/API readiness, Unicode worksp
 registration, loopback listener addresses and graceful shutdown before bundling.
 It also tests the native URL guards and the private Python control protocol.
 After bundling, CI installs the NSIS package in its disposable Windows account,
-clicks the real WebView2 launcher's start/stop controls, verifies the tutoring
-window, and terminates the desktop process to verify Job Object cleanup. The
+verifies automatic startup into the original chat, exercises the actual native
+settings menu, hides settings, stops/restarts services and closes the primary
+window. It separately terminates a fresh desktop to verify Job Object cleanup. The
 test uses an isolated `DEEPTUTOR_DESKTOP_STATE_DIR`; normal launches use the
 standard per-user application data directory. Native screenshots are uploaded
 as a separate test-evidence artifact.

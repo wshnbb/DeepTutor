@@ -1,6 +1,11 @@
 :root { color-scheme: light; font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; color: #28342d; background: #fafbf8; font-synthesis: none; }
 * { box-sizing: border-box; }
 body { margin: 0; display: flex; min-height: 100vh; }
+#startup { display: none; }
+.booting #startup { position: fixed; inset: 0; z-index: 10; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: #555; }
+.booting #startup h1 { font-family: Georgia, serif; color: #222; }
+.booting #startup p { font-size: 14px; }
+.booting > .sidebar, .booting > main { visibility: hidden; }
 button, a { -webkit-user-select: none; user-select: none; }
 button { cursor: pointer; font: inherit; background: #fff; color: inherit; border: 1px solid #dce2d9; border-radius: 8px; padding: 10px 16px; transition: background .15s, border-color .15s; }
 button:hover:not(:disabled) { background: #f0f4ed; border-color: #a7b4a2; }

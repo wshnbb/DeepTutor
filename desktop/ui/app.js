@@ -7,6 +7,14 @@ let busy = false;
 let openWhenReady = false;
 let workspacesLoaded = false;
 let polling = false;
+let errorRevealed = false;
+
+function showSettings() {
+  document.body.classList.remove('booting');
+  openWhenReady = false;
+}
+window.addEventListener('desktop-settings', showSettings);
+$('#startup-settings').addEventListener('click', showSettings);
 
 function message(text) {
   $('#message').textContent = String(text);
@@ -22,7 +30,7 @@ async function action(callback) {
   if (busy) return;
   busy = true;
   message('');
-  try { await callback(); } catch (error) { message(error); }
+  try { await callback(); } catch (error) { showSettings(); message(error); }
   finally { busy = false; await refresh(); }
 }
 
@@ -45,6 +53,7 @@ function renderStatus(status) {
   $('#rail-dot').classList.toggle('ready', running);
   $('#service-title').textContent = running ? '学习空间已就绪' : starting ? '正在准备你的学习空间' : '准备好，继续学习';
   $('#service-detail').textContent = status.message || (running ? '模型设置、工作区和学习工具已可以打开。' : starting ? '首次启动可能需要几分钟。你可以在启动日志查看进度。' : '启动后即可配置模型、整理资料，进入你的学习工作区。');
+  $('#startup-detail').textContent = starting ? '正在启动，随后进入学习界面…' : '正在打开学习界面…';
   $('#start').disabled = running || starting || busy;
   $('#stop').disabled = (!running && !starting) || busy;
   $('#choose-home').disabled = running || starting || busy;
@@ -63,10 +72,19 @@ async function refresh() {
       if (openWhenReady) {
         openWhenReady = false;
         await command('open_app', { section: 'chat', workspaceId: null });
+        showSettings();
       }
       if (!workspacesLoaded) { workspacesLoaded = true; await loadWorkspaces(); }
-    } else if (phase === 'error' || phase === 'stopped') openWhenReady = false;
-  } catch (error) { message(error); }
+    } else if (phase === 'error' || phase === 'stopped') {
+      openWhenReady = false;
+      if (phase === 'error' && !errorRevealed) {
+        errorRevealed = true;
+        showSettings();
+        await command('show_settings');
+        message(status.message);
+      }
+    }
+  } catch (error) { showSettings(); message(error); }
   finally { polling = false; }
 }
 
@@ -104,11 +122,13 @@ async function loadLogs() { $('#log-output').textContent = await command('read_l
 
 $$('[data-view]').forEach((button) => button.addEventListener('click', () => showView(button.dataset.view)));
 $$('[data-section]').forEach((button) => button.addEventListener('click', () => action(() => command('open_app', { section: button.dataset.section, workspaceId: null }))));
-$('#start').addEventListener('click', () => action(async () => {
+async function startApplication() {
+  errorRevealed = false;
   openWhenReady = true;
   try { renderStatus(await command('start_service')); }
   catch (error) { openWhenReady = false; throw error; }
-}));
+}
+$('#start').addEventListener('click', () => action(startApplication));
 $('#stop').addEventListener('click', () => action(async () => {
   openWhenReady = false;
   await command('stop_service');
@@ -116,5 +136,5 @@ $('#stop').addEventListener('click', () => action(async () => {
 $('#choose-home').addEventListener('click', () => action(() => command('choose_home')));
 $('#add-workspace').addEventListener('click', () => action(() => loadWorkspaces(true)));
 $('#refresh-logs').addEventListener('click', () => action(loadLogs));
-await refresh();
+await action(startApplication);
 setInterval(refresh, 1800);
