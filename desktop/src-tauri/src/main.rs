@@ -427,6 +427,7 @@ fn open_tutor(app: &tauri::AppHandle, section: &str, workspace_id: Option<&str>,
         let port = base.port();
         let mut builder = tauri::WebviewWindowBuilder::new(app, "tutor", WebviewUrl::External(url))
             .title("DeepTutor").visible(false).inner_size(1320.0, 900.0).min_inner_size(900.0, 640.0)
+            .menu(app.menu().ok_or("Missing application menu")?)
             .data_directory(browser_data)
             .on_navigation(move |url| url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port() == port);
         if let Some(args) = test_browser_args() { builder = builder.additional_browser_args(&args); }
