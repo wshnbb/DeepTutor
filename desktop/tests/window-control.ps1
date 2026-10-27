@@ -1,7 +1,8 @@
 # Disposable CI only: exercise the actual native menu and close buttons.
 param(
   [Parameter(Mandatory)][int]$DesktopProcessId,
-  [Parameter(Mandatory)][ValidateSet('Snapshot','Settings','CloseSettings','CloseTutor')][string]$Action
+  [Parameter(Mandatory)][ValidateSet('Snapshot','Settings','CloseSettings','CloseTutor','CaptureTutor')][string]$Action,
+  [string]$OutputPath
 )
 $ErrorActionPreference = 'Stop'
 Add-Type @'
@@ -15,6 +16,9 @@ public static class DesktopWindows {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint process);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int count);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
+  [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
+  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
   [DllImport("user32.dll")] public static extern IntPtr GetMenu(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern int GetMenuItemCount(IntPtr menu);
   [DllImport("user32.dll")] public static extern uint GetMenuItemID(IntPtr menu, int position);
@@ -38,7 +42,21 @@ if ($Action -eq 'Snapshot') {
 $title = if ($Action -eq 'CloseSettings') { 'DeepTutor 桌面设置' } else { 'DeepTutor' }
 $target = @($windows | Where-Object { $_.title -eq $title })
 if ($target.Count -ne 1) { throw "Expected one window: $title" }
-if ($Action -eq 'Settings') {
+if ($Action -eq 'CaptureTutor') {
+  if (-not $OutputPath) { throw 'Capture requires an output path' }
+  Add-Type -AssemblyName System.Drawing
+  $rect = [DesktopWindows+Rect]::new()
+  if (-not [DesktopWindows]::GetWindowRect($target[0].handle, [ref]$rect)) { throw 'Cannot read window bounds' }
+  $bitmap = [System.Drawing.Bitmap]::new($rect.Right - $rect.Left, $rect.Bottom - $rect.Top)
+  $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+  $hdc = $graphics.GetHdc()
+  try { $captured = [DesktopWindows]::PrintWindow($target[0].handle, $hdc, 2) }
+  finally { $graphics.ReleaseHdc($hdc) }
+  try {
+    if (-not $captured) { throw 'Native window capture failed' }
+    $bitmap.Save($OutputPath, [System.Drawing.Imaging.ImageFormat]::Png)
+  } finally { $graphics.Dispose(); $bitmap.Dispose() }
+} elseif ($Action -eq 'Settings') {
   $menu = [DesktopWindows]::GetMenu($target[0].handle)
   $found = $false
   for ($index = 0; $index -lt [DesktopWindows]::GetMenuItemCount($menu); $index++) {

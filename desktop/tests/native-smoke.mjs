@@ -27,8 +27,10 @@ const launch = () => spawn(path.join(install, executables[0]), [], {
   windowsHide: false, stdio: 'ignore',
 });
 let native = launch();
-const control = (action) => {
-  const output = execFileSync('pwsh.exe', ['-NoProfile', '-File', 'tests/window-control.ps1', '-DesktopProcessId', String(native.pid), '-Action', action], { encoding: 'utf8', windowsHide: true });
+const control = (action, outputPath) => {
+  const args = ['-NoProfile', '-File', 'tests/window-control.ps1', '-DesktopProcessId', String(native.pid), '-Action', action];
+  if (outputPath) args.push('-OutputPath', outputPath);
+  const output = execFileSync('pwsh.exe', args, { encoding: 'utf8', windowsHide: true });
   return action === 'Snapshot' ? JSON.parse(output) : undefined;
 };
 const waitForWindow = async (title, visible) => {
@@ -89,6 +91,8 @@ try {
   await waitForWindow('DeepTutor 桌面设置', false);
   await waitForWindow('DeepTutor', true);
   await tutor.screenshot({ path: path.join(evidence, 'native-original-chat.png') });
+  control('CaptureTutor', path.join(evidence, 'native-application-window.png'));
+  await writeFile(path.join(evidence, 'native-windows.json'), JSON.stringify({ executable: path.join(install, executables[0]), pid: native.pid, windows: control('Snapshot') }, null, 2));
   console.log('PASS: startup automatically opens the original chat, sidebar and learning tools.');
 
   control('Settings');
