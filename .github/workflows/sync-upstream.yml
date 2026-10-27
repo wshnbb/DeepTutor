@@ -1,0 +1,65 @@
+name: Sync upstream
+
+on:
+  schedule:
+    # Every 6 hours; UTC+8: 02:23, 08:23, 14:23, 20:23.
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-main
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'wshnbb/DeepTutor'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Merge upstream main without overwriting local changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent="$(gh api "repos/$GH_REPO" --jq '.parent.full_name')"
+          if [[ "$parent" != "HKUDS/DeepTutor" ]]; then
+            echo "::error::Unexpected upstream repository: $parent"
+            exit 1
+          fi
+          # GitHub refuses this merge on conflicts; no force/reset is used.
+          result="$(gh api --method POST "repos/$GH_REPO/merge-upstream" -f branch=main)"
+          printf '%s\n' "$result" | jq .
+          {
+            echo "### DeepTutor upstream sync"
+            echo "Source: HKUDS/DeepTutor (main)"
+            echo "Destination: $GH_REPO (main)"
+            printf '%s\n' "$result" | jq -r '.message'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the scheduled workflow active during quiet upstream periods
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Public schedules can stop after 60 days of repository inactivity.
+          # An empty commit after 45 days preserves all source files.
+          head="$(gh api "repos/$GH_REPO/commits/main")"
+          head_sha="$(jq -r '.sha' <<< "$head")"
+          head_date="$(jq -r '.commit.committer.date' <<< "$head")"
+          age_seconds=$(( $(date -u +%s) - $(date -u -d "$head_date" +%s) ))
+          if (( age_seconds < 45 * 86400 )); then
+            echo "Recent repository activity; no keepalive commit needed."
+            exit 0
+          fi
+          tree_sha="$(jq -r '.commit.tree.sha' <<< "$head")"
+          new_sha="$(gh api --method POST "repos/$GH_REPO/git/commits" \
+            -f message="chore: keep upstream sync active [skip ci]" \
+            -f tree="$tree_sha" -f "parents[]=$head_sha" --jq '.sha')"
+          # Non-forced update rejects concurrent or divergent changes.
+          gh api --method PATCH "repos/$GH_REPO/git/refs/heads/main" \
+            -f sha="$new_sha" -F force=false
+          echo "Created an empty keepalive commit; source files are unchanged." >> "$GITHUB_STEP_SUMMARY"
