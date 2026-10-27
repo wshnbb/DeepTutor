@@ -73,7 +73,8 @@ if ($Action -eq 'CaptureTutor') {
 } elseif ($menuAction) {
   $menu = [DesktopWindows]::GetMenu($target[0].handle)
   $position = @{Restore=0;Settings=1;Background=2;Quit=3}[$Action]
-  if ([DesktopWindows]::GetMenuItemCount($menu) -ne 4) { throw 'Unexpected native menu layout' }
+  $count = [DesktopWindows]::GetMenuItemCount($menu)
+  if ($count -ne 4) { throw "Unexpected native menu layout: action=$Action, handle=$menu, items=$count" }
   $id = [DesktopWindows]::GetMenuItemID($menu, $position)
   if ($id -eq [uint32]::MaxValue) { throw 'Desktop menu item is not a command' }
   if (-not [DesktopWindows]::PostMessage($target[0].handle, 0x111, [IntPtr]::new($id), [IntPtr]::Zero)) { throw 'Menu command failed' }

@@ -322,7 +322,13 @@ async fn stop_service(window: WebviewWindow, app: tauri::AppHandle) -> Result<()
     manager_only(&window)?;
     app.state::<Lifecycle>().backgrounded.store(false, Ordering::SeqCst);
     // Stopping services keeps the settings window available to the user.
-    if let Some(window) = app.get_webview_window("tutor") { window.destroy().map_err(|e| e.to_string())?; }
+    if let Some(window) = app.get_webview_window("tutor") {
+        // Windows destroys an attached HMENU with its window. This menu is
+        // shared with settings, so detach it before destroying the tutor.
+        // Both operations are queued to the same Windows event loop in order.
+        window.hide_menu().map_err(|e| e.to_string())?;
+        window.destroy().map_err(|e| e.to_string())?;
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<Desktop>();
         let mut session = state.inner().0.lock().map_err(|e| e.to_string())?;
