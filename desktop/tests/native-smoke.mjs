@@ -17,7 +17,7 @@ await mkdir(evidence, { recursive: true });
 const blockers = [];
 for (const port of [8001, 3782]) {
   const server = net.createServer((socket) => socket.end());
-  server.listen(port, '127.0.0.1');
+  server.listen(port, '0.0.0.0');
   await once(server, 'listening');
   blockers.push(server);
 }

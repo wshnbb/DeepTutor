@@ -617,8 +617,11 @@ def _select_loopback_ports(
             probes.append(probe)
             if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
                 probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            # Windows can allow a specific-address bind alongside an existing
+            # wildcard listener. Probe live listeners as well as bindability.
+            requested = 0 if _port_accepts_connection(preferred) else preferred
             try:
-                probe.bind(("127.0.0.1", preferred))
+                probe.bind(("127.0.0.1", requested))
             except OSError:
                 probe.bind(("127.0.0.1", 0))
             selected.append(probe.getsockname()[1])

@@ -9,12 +9,13 @@ from unittest.mock import Mock
 source = Path(__file__).resolve().parents[2] / "deeptutor/runtime/launcher.py"
 nodes = [node for node in ast.parse(source.read_text(encoding="utf-8")).body
          if isinstance(node, ast.FunctionDef) and node.name in {
+             "_host_accepts_connection", "_port_accepts_connection",
              "_select_loopback_ports", "_resolve_port_conflicts"}]
 
 
 class AutomaticPortsTests(unittest.TestCase):
     def setUp(self):
-        self.scope = {"socket": socket, "Path": Path, "_persist_ports": Mock(),
+        self.scope = {"socket": socket, "Path": Path, "LOOPBACK_HOSTS": ("127.0.0.1", "::1"), "_persist_ports": Mock(),
                       "_log": Mock(), "_t": Mock(return_value="saved")}
         for name in ["_prompt_conflict_choice", "_prompt_new_ports", "_kill_port_listeners",
                      "_port_listeners", "_owned_orphan_started_at"]:
@@ -43,6 +44,17 @@ class AutomaticPortsTests(unittest.TestCase):
         selected = self.scope["_select_loopback_ports"](preferred, preferred, True)
         self.assertEqual(selected[0], preferred)
         self.assertNotEqual(*selected)
+
+    def test_wildcard_listener_is_avoided_even_when_it_allows_address_reuse(self):
+        with socket.socket() as listener:
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("0.0.0.0", 0)); listener.listen()
+            preferred = listener.getsockname()[1]
+            selected = self.scope["_select_loopback_ports"](preferred, preferred, True)
+            self.assertNotIn(preferred, selected)
+            self.assertNotEqual(*selected)
+            with socket.create_connection(("127.0.0.1", preferred), timeout=1):
+                pass
 
     def test_available_saved_ports_are_not_rewritten(self):
         with socket.socket() as first, socket.socket() as second:

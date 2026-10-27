@@ -29,7 +29,7 @@ def smoke(runtime: Path) -> None:
         blockers = []
         for port in [8001, 3782]:
             listener = guards.enter_context(socket.socket())
-            listener.bind(("127.0.0.1", port))
+            listener.bind(("0.0.0.0", port))
             listener.listen()
             blockers.append(listener)
         root = Path(directory)
@@ -97,7 +97,7 @@ def smoke(runtime: Path) -> None:
                         assert probe.connect_ex(("127.0.0.1", port)) != 0, f"Orphaned service on {port}"
             print("PASS: graceful shutdown leaves no server listeners.")
             for listener in blockers:
-                with socket.create_connection(listener.getsockname(), timeout=1):
+                with socket.create_connection(("127.0.0.1", listener.getsockname()[1]), timeout=1):
                     pass
             print("PASS: desktop automatically avoids occupied ports and preserves both existing listeners.")
 
