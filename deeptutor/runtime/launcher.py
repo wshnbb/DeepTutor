@@ -1734,7 +1734,8 @@ def start(
                 backend_port=backend_port,
                 frontend_port=frontend_port,
             )
-        _log(_t("start.open_in_browser", url=frontend_url))
+        if on_ready is None:
+            _log(_t("start.open_in_browser", url=frontend_url))
         if on_ready is not None:
             on_ready(
                 {
@@ -1766,4 +1767,5 @@ def start(
 
 
 __all__ = ["start", "stop"]
+
 
