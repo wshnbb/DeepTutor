@@ -189,11 +189,11 @@ try {
   const uninstallDeadline = Date.now() + 60000;
   let removed = false;
   while (Date.now() < uninstallDeadline) {
-    try { await access(path.join(install, executables[0])); }
+    try { await access(install); }
     catch (error) { if (error.code === 'ENOENT') { removed = true; break; } throw error; }
     await wait(500);
   }
-  assert.ok(removed, 'Uninstaller left the desktop executable installed');
+  assert.ok(removed, 'Uninstaller left application files or runtime caches in the installation directory');
   await access(path.join(state, 'home', 'data', 'user', 'settings', 'system.json'));
   console.log('PASS: the actual uninstaller removes the application and keeps the separate runtime home.');
 } catch (error) {
@@ -214,4 +214,3 @@ try {
   if (native.exitCode === null) native.kill();
   for (const server of blockers) server.close();
 }
-

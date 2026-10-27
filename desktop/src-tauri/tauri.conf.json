@@ -22,7 +22,7 @@
     "shortDescription": "DeepTutor Windows desktop client",
     "windows": {
       "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
-      "nsis": { "installMode": "currentUser", "compression": "zlib", "displayLanguageSelector": true, "languages": ["SimpChinese", "English"] }
+      "nsis": { "installMode": "currentUser", "compression": "zlib", "displayLanguageSelector": true, "languages": ["SimpChinese", "English"], "installerHooks": "installer-hooks.nsh" }
     }
   }
 }
