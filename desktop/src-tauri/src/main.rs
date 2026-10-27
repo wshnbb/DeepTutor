@@ -422,7 +422,10 @@ fn open_tutor(app: &tauri::AppHandle, section: &str, workspace_id: Option<&str>,
     let base = endpoint(&info.frontend_url).ok_or("Invalid service origin")?;
     let url = base.join(&section_path(section, workspace_id)?).map_err(|e| e.to_string())?;
     if let Some(tutor) = app.get_webview_window("tutor") {
-        tutor.navigate(url).map_err(|e| e.to_string())?;
+        // A tray restore can beat the hidden startup page's readiness poll.
+        // Its later auto-open must not reload the page or erase an unsent draft.
+        let same_origin = tutor.url().map(|current| current.origin() == url.origin()).unwrap_or(false);
+        if !automatic || !same_origin { tutor.navigate(url).map_err(|e| e.to_string())?; }
     } else {
         let port = base.port();
         let mut builder = tauri::WebviewWindowBuilder::new(app, "tutor", WebviewUrl::External(url))

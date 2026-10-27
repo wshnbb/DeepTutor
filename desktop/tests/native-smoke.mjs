@@ -151,6 +151,8 @@ try {
   await waitForWindow('tutor', true);
   assert.equal(tutor.url(), retainedURL);
   assert.equal(await tutor.evaluate(() => window.__retainedDraft), 'unsent learning draft');
+  await page.evaluate(() => window.__TAURI__.core.invoke('open_app', { section: 'chat', workspaceId: null, automatic: true }));
+  assert.equal(await tutor.evaluate(() => window.__retainedDraft), 'unsent learning draft', 'A late startup poll reloaded the restored page');
 
   control('Background');
   await waitForWindow('tutor', false);
