@@ -1568,6 +1568,8 @@ def start(
 
     backend_cmd = [
         sys.executable,
+        "-X",
+        "utf8",
         "-m",
         "uvicorn",
         "deeptutor.api.main:app",

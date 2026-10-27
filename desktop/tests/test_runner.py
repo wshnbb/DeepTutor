@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 import importlib.util
+import io
 import json
 from pathlib import Path
 import sys
@@ -26,6 +27,15 @@ def fake_modules(**items):
 
 
 class RunnerTests(unittest.TestCase):
+    def test_control_protocol_uses_utf8_on_non_utf8_windows_consoles(self):
+        with tempfile.TemporaryDirectory() as home:
+            data = io.BytesIO()
+            console = io.TextIOWrapper(data, encoding="cp1252")
+            with patch.object(sys, "argv", ["runner", "workspaces", "--home", home]), patch.object(sys, "stdout", console), patch.object(sys, "stderr", io.StringIO()), patch.object(runner, "initialize"), patch.object(runner, "workspace_action", return_value={"name": "学习资料"}):
+                runner.main()
+                console.flush()
+                self.assertEqual(json.loads(data.getvalue().decode("utf-8")), {"name": "学习资料"})
+
     def test_ready_file_is_atomic_and_preserves_unicode(self):
         with tempfile.TemporaryDirectory() as folder:
             target = Path(folder) / "control/instance.json"

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from urllib.request import ProxyHandler, build_opener
@@ -14,6 +15,8 @@ import uuid
 
 
 def smoke(runtime: Path) -> None:
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
     runtime = runtime.resolve()
     python = runtime / "python/python.exe"
     runner = runtime / "runner.py"
@@ -32,7 +35,7 @@ def smoke(runtime: Path) -> None:
         endpoints = None
         with log_path.open("w", encoding="utf-8") as log:
             child = subprocess.Popen([
-                str(python), "-u", str(runner), "serve", "--home", str(home),
+                str(python), "-X", "utf8", "-u", str(runner), "serve", "--home", str(home),
                 "--control", str(control), "--instance", instance,
             ], env=env, stdout=log, stderr=log)
             try:
@@ -48,7 +51,7 @@ def smoke(runtime: Path) -> None:
                         assert response.status == 200, key
                 # Native path selection feeds the ordinary workspace registry.
                 result = subprocess.check_output([
-                    str(python), str(runner), "add-workspace", "--home", str(home), "--folder", str(workspace),
+                    str(python), "-X", "utf8", str(runner), "add-workspace", "--home", str(home), "--folder", str(workspace),
                 ], env=env, text=True, encoding="utf-8")
                 data = json.loads(result)
                 assert any(Path(row["path"]) == workspace for row in data["workspaces"])

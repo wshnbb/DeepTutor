@@ -59,7 +59,7 @@ fn runtime_command(session: &Session) -> Result<Command, String> {
         return Err("安装包中的运行环境不完整，请重新安装完整的 Windows 桌面版。".into());
     }
     let mut command = Command::new(python);
-    command.arg("-u").arg(runner);
+    command.args(["-X", "utf8", "-u"]).arg(runner);
     let mut paths = vec![node_dir];
     paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
     command.env("PATH", std::env::join_paths(paths).map_err(|e| e.to_string())?);
@@ -288,7 +288,7 @@ fn main() {
         .on_window_event(|window, event| {
             if window.label() == "main" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
                 let state = window.state::<Desktop>();
-                if let Ok(mut session) = state.inner().0.lock() { let _ = stop(&mut session); }
+                if let Ok(mut session) = state.inner().0.lock() { let _ = stop(&mut session); };
                 window.app_handle().exit(0);
             }
         })
@@ -297,7 +297,7 @@ fn main() {
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
                 let state = app.state::<Desktop>();
-                if let Ok(mut session) = state.inner().0.lock() { let _ = stop(&mut session); }
+                if let Ok(mut session) = state.inner().0.lock() { let _ = stop(&mut session); };
             }
         });
 }

@@ -84,6 +84,9 @@ def serve(home: Path, control: Path, instance: str, gate: Path | None = None) ->
 
 
 def main() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=["serve", "workspaces", "add-workspace"])
     parser.add_argument("--home", type=Path, required=True)
