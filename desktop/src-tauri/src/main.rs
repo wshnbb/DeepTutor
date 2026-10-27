@@ -218,6 +218,7 @@ fn status(session: &mut Session) -> Status {
     if let Some(code) = ended {
         session.child.take();
         session.job.take();
+        clear_control(session);
         session.last_error = format!("服务已退出（{code}），请查看启动日志。");
     }
     let info = ready(session);
@@ -229,6 +230,13 @@ fn status(session: &mut Session) -> Status {
         frontend_url: info.map(|info| info.frontend_url),
         backgrounded: false,
         tray_available: false,
+    }
+}
+
+fn clear_control(session: &Session) {
+    if session.instance.is_empty() { return; }
+    for extension in ["json", "stop", "gate"] {
+        let _ = fs::remove_file(session.control.join(format!("{}.{}", session.instance, extension)));
     }
 }
 
@@ -248,9 +256,7 @@ fn stop(session: &mut Session) -> Result<(), String> {
         // Ownership cleanup still completes when writing the stop marker failed.
         let _ = result;
     }
-    for extension in ["json", "stop", "gate"] {
-        let _ = fs::remove_file(session.control.join(format!("{}.{}", session.instance, extension)));
-    }
+    clear_control(session);
     Ok(())
 }
 
@@ -315,7 +321,7 @@ fn start_service(window: WebviewWindow, state: State<Desktop>, app: tauri::AppHa
 async fn stop_service(window: WebviewWindow, app: tauri::AppHandle) -> Result<(), String> {
     manager_only(&window)?;
     app.state::<Lifecycle>().backgrounded.store(false, Ordering::SeqCst);
-    // Programmatic service stop must not trigger the user's close-to-quit path.
+    // Stopping services keeps the settings window available to the user.
     if let Some(window) = app.get_webview_window("tutor") { window.destroy().map_err(|e| e.to_string())?; }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<Desktop>();
