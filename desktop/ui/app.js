@@ -8,12 +8,14 @@ let openWhenReady = false;
 let workspacesLoaded = false;
 let polling = false;
 let errorRevealed = false;
+let startupFailed = false;
 
 function showSettings() {
   document.body.classList.remove('booting');
   openWhenReady = false;
 }
 function showStartupError(error) {
+  startupFailed = true;
   openWhenReady = false;
   document.body.classList.add('booting');
   $('#startup-title').textContent = '启动遇到问题';
@@ -66,7 +68,7 @@ function renderStatus(status) {
   $('#rail-dot').classList.toggle('ready', running);
   $('#service-title').textContent = running ? '学习空间已就绪' : starting ? '正在准备你的学习空间' : '准备好，继续学习';
   $('#service-detail').textContent = status.message || (running ? '模型设置、工作区和学习工具已可以打开。' : starting ? '首次启动可能需要几分钟。你可以在启动日志查看进度。' : '启动后即可配置模型、整理资料，进入你的学习工作区。');
-  if (phase !== 'error') $('#startup-detail').textContent = starting ? '正在启动，随后进入学习界面…' : '正在打开学习界面…';
+  if (!startupFailed && phase !== 'error') $('#startup-detail').textContent = starting ? '正在启动，随后进入学习界面…' : '正在打开学习界面…';
   $('#start').disabled = running || starting || busy;
   $('#stop').disabled = (!running && !starting) || busy;
   $('#choose-home').disabled = running || starting || busy;
@@ -138,6 +140,7 @@ async function loadLogs() { $('#log-output').textContent = await command('read_l
 $$('[data-view]').forEach((button) => button.addEventListener('click', () => showView(button.dataset.view)));
 $$('[data-section]').forEach((button) => button.addEventListener('click', () => action(() => command('open_app', { section: button.dataset.section, workspaceId: null }))));
 async function startApplication() {
+  startupFailed = false;
   $('#startup-title').textContent = 'DeepTutor';
   $('#startup-retry').hidden = true;
   $('#startup-logs').hidden = true;

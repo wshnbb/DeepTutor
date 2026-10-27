@@ -29,8 +29,8 @@ assert.equal(installCode, 0, 'Installer failed');
 const executables = (await readdir(install)).filter((name) => name.endsWith('.exe') && !name.toLowerCase().includes('uninstall'));
 assert.equal(executables.length, 1, 'Expected one desktop executable');
 
-const launch = () => spawn(path.join(install, executables[0]), [], {
-  env: { ...process.env, DEEPTUTOR_DESKTOP_STATE_DIR: state, DEEPTUTOR_DESKTOP_TEST_CDP_PORT: '9223' },
+const launch = (stateDirectory = state) => spawn(path.join(install, executables[0]), [], {
+  env: { ...process.env, DEEPTUTOR_DESKTOP_STATE_DIR: stateDirectory, DEEPTUTOR_DESKTOP_TEST_CDP_PORT: '9223' },
   windowsHide: false, stdio: 'ignore',
 });
 let native = launch();
@@ -77,14 +77,17 @@ const assertStopped = async (endpoints) => {
   }
 };
 let browser;
-let connectionError;
-try {
+const attach = async () => {
+  let connectionError;
   const deadline = Date.now() + 60000;
   while (Date.now() < deadline) {
-    try { browser = await chromium.connectOverCDP('http://127.0.0.1:9223', { timeout: 3000 }); break; }
+    try { return await chromium.connectOverCDP('http://127.0.0.1:9223', { timeout: 3000 }); }
     catch (error) { connectionError = error.message; if (native.exitCode !== null) throw new Error(`Desktop exited: ${native.exitCode}`); await wait(500); }
   }
-  assert.ok(browser, `Desktop WebView2 debugging endpoint did not start: ${connectionError}`);
+  throw new Error(`Desktop WebView2 debugging endpoint did not start: ${connectionError}`);
+};
+try {
+  browser = await attach();
   const context = browser.contexts()[0];
   const page = context.pages()[0] || await context.waitForEvent('page', { timeout: 30000 });
   settingsPage = page;
@@ -152,6 +155,32 @@ try {
   console.log('PASS: Windows Job Object cleans up both servers when the desktop is terminated.');
   assert.ok(blockers.every((server) => server.listening), 'Desktop stopped an existing listener');
   console.log('PASS: installed desktop coexists with Web services occupying the default ports.');
+
+  // An invalid data directory fails before a runtime child can be spawned.
+  // Its error must remain visible across polling, with an explicit retry path.
+  const invalidState = path.join(root, 'invalid-state');
+  const invalidHome = path.join(root, 'not-a-directory');
+  await mkdir(invalidState);
+  await writeFile(invalidHome, 'This is a file, not a data directory.');
+  await writeFile(path.join(invalidState, 'desktop.json'), JSON.stringify({ home: invalidHome }));
+  native = launch(invalidState);
+  browser = await attach();
+  const errorContext = browser.contexts()[0];
+  const errorPage = errorContext.pages()[0] || await errorContext.waitForEvent('page', { timeout: 30000 });
+  settingsPage = errorPage;
+  await errorPage.getByRole('heading', { name: '启动遇到问题', exact: true }).waitFor({ timeout: 30000 });
+  await errorPage.getByRole('button', { name: '重新启动', exact: true }).waitFor();
+  await errorPage.getByRole('button', { name: '查看启动日志', exact: true }).waitFor();
+  const failureDetail = await errorPage.locator('#startup-detail').innerText();
+  assert.ok(failureDetail.trim(), 'Startup failure has no explanation');
+  await wait(3800);
+  assert.equal(await errorPage.locator('#startup-detail').innerText(), failureDetail, 'Polling replaced the startup error');
+  assert.equal(await errorPage.locator('#overview').isVisible(), false, 'Startup failure fell back to the old dashboard');
+  await errorPage.screenshot({ path: path.join(evidence, 'native-startup-error.png') });
+  const invalidExited = once(native, 'exit');
+  control('CloseSettings');
+  await Promise.race([invalidExited, wait(15000).then(() => { throw new Error('Startup error window did not close'); })]);
+  console.log('PASS: startup failure shows a stable error screen with retry/log buttons, without the dashboard.');
 } catch (error) {
   try {
     const diagnostic = execFileSync('powershell.exe', ['-NoProfile', '-Command', "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'deeptutor|msedgewebview2' } | Select-Object Name,ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Depth 3"], { encoding: 'utf8', windowsHide: true });
