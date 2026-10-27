@@ -62,4 +62,10 @@ On a Windows development machine with MSVC, Rust, Python 3.12, Node 22 and WebVi
 CI exercises the copied interpreter, real frontend/API readiness, Unicode workspace
 registration, loopback listener addresses and graceful shutdown before bundling.
 It also tests the native URL guards and the private Python control protocol.
+After bundling, CI installs the NSIS package in its disposable Windows account,
+clicks the real WebView2 launcher's start/stop controls, verifies the tutoring
+window, and terminates the desktop process to verify Job Object cleanup. The
+test uses an isolated `DEEPTUTOR_DESKTOP_STATE_DIR`; normal launches use the
+standard per-user application data directory. Native screenshots are uploaded
+as a separate test-evidence artifact.
 For a UI-only mock preview: `node desktop/tests/preview.mjs` (not a backend test).

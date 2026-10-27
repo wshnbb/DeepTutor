@@ -272,7 +272,11 @@ fn main() {
             if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); }
         }))
         .setup(|app| {
-            let root = app.path().app_local_data_dir()?;
+            let root = match std::env::var_os("DEEPTUTOR_DESKTOP_STATE_DIR") {
+                Some(path) if Path::new(&path).is_absolute() => PathBuf::from(path),
+                Some(_) => return Err("DEEPTUTOR_DESKTOP_STATE_DIR must be an absolute path".into()),
+                None => app.path().app_local_data_dir()?,
+            };
             fs::create_dir_all(&root)?;
             let preferences_file = root.join("desktop.json");
             let home = if preferences_file.exists() {

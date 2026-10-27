@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: desktop-windows-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   windows:
@@ -73,6 +73,11 @@ jobs:
       - name: Build Windows installer
         working-directory: desktop
         run: npm run build -- --bundles nsis
+      - name: Verify installed native desktop
+        working-directory: desktop
+        run: node tests/native-smoke.mjs
+        env:
+          DESKTOP_EVIDENCE: ${{ runner.temp }}/desktop-evidence
       - name: Write installer checksums
         shell: pwsh
         run: |
@@ -90,3 +95,10 @@ jobs:
             desktop/src-tauri/target/release/bundle/nsis/*.sha256
             desktop/src-tauri/runtime/manifest.json
             desktop/src-tauri/Cargo.lock
+      - name: Upload native test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeepTutor-Desktop-Test-Evidence-${{ github.run_number }}
+          path: ${{ runner.temp }}/desktop-evidence
+          if-no-files-found: ignore

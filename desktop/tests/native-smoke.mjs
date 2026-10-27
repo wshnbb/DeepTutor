@@ -1,0 +1,84 @@
+// Run only on the disposable Windows CI machine, against the NSIS installer.
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdtemp, mkdir, readdir, readFile } from 'node:fs/promises';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import { chromium } from 'playwright-core';
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const root = await mkdtemp(path.join(os.tmpdir(), 'dt-desktop-native-'));
+const install = path.join(root, 'app');
+const state = path.join(root, 'state');
+const evidence = path.resolve(process.env.DESKTOP_EVIDENCE || path.join(root, 'evidence'));
+await mkdir(evidence, { recursive: true });
+const installers = (await readdir('src-tauri/target/release/bundle/nsis')).filter((name) => name.endsWith('.exe'));
+assert.equal(installers.length, 1);
+const installer = spawn(path.resolve('src-tauri/target/release/bundle/nsis', installers[0]), ['/S', `/D=${install}`], { windowsHide: true });
+const [installCode] = await once(installer, 'exit');
+assert.equal(installCode, 0, 'Installer failed');
+const executables = (await readdir(install)).filter((name) => name.endsWith('.exe') && !name.toLowerCase().includes('uninstall'));
+assert.equal(executables.length, 1, 'Expected one desktop executable');
+
+const native = spawn(path.join(install, executables[0]), [], {
+  env: { ...process.env, DEEPTUTOR_DESKTOP_STATE_DIR: state, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9223' },
+  windowsHide: false, stdio: 'ignore',
+});
+let browser;
+try {
+  const deadline = Date.now() + 60000;
+  while (Date.now() < deadline) {
+    try { browser = await chromium.connectOverCDP('http://127.0.0.1:9223', { timeout: 3000 }); break; }
+    catch { if (native.exitCode !== null) throw new Error(`Desktop exited: ${native.exitCode}`); await wait(500); }
+  }
+  assert.ok(browser, 'Desktop WebView2 debugging endpoint did not start');
+  const context = browser.contexts()[0];
+  const page = context.pages()[0] || await context.waitForEvent('page', { timeout: 30000 });
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.getByRole('button', { name: '启动并打开应用 ↗', exact: true }).waitFor({ timeout: 30000 });
+  await page.getByRole('button', { name: '启动并打开应用 ↗', exact: true }).click();
+  await page.locator('#status').filter({ hasText: '正在运行' }).waitFor({ timeout: 240000 });
+  await page.getByRole('button', { name: '工作区 02', exact: true }).click();
+  await page.locator('.workspace-row').first().waitFor({ timeout: 60000 });
+  await page.screenshot({ path: path.join(evidence, 'native-workspaces.png') });
+  assert.ok(context.pages().some((item) => /^http:\/\/127\.0\.0\.1:\d+\/chat/.test(item.url())), 'Tutoring window did not open');
+  await page.getByRole('button', { name: '概览 01', exact: true }).click();
+  await page.getByRole('button', { name: '停止服务', exact: true }).click();
+  await page.locator('#status').filter({ hasText: '尚未启动' }).waitFor({ timeout: 40000 });
+  console.log('PASS: installed desktop opens its tutor window and stops its real services.');
+
+  await page.getByRole('button', { name: '启动并打开应用 ↗', exact: true }).click();
+  await page.locator('#status').filter({ hasText: '正在运行' }).waitFor({ timeout: 240000 });
+  const files = (await readdir(path.join(state, 'control'))).filter((name) => name.endsWith('.json'));
+  assert.equal(files.length, 1);
+  const endpoints = JSON.parse(await readFile(path.join(state, 'control', files[0]), 'utf8'));
+  await page.screenshot({ path: path.join(evidence, 'native-overview.png') });
+  assert.deepEqual(errors, [], 'Desktop page has JavaScript errors');
+  native.kill();
+  await once(native, 'exit');
+  for (const key of ['frontend_url', 'backend_url']) {
+    const port = Number(new URL(endpoints[key]).port);
+    let closed = false;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const listening = await new Promise((resolve) => {
+        const socket = net.connect({ host: '127.0.0.1', port });
+        socket.once('connect', () => { socket.destroy(); resolve(true); });
+        socket.once('error', () => resolve(false));
+        socket.setTimeout(1000, () => { socket.destroy(); resolve(false); });
+      });
+      if (!listening) { closed = true; break; }
+      await wait(500);
+    }
+    assert.ok(closed, `Owned server survived desktop termination: ${key}`);
+  }
+  console.log('PASS: Windows Job Object cleans up both servers when the desktop is terminated.');
+} catch (error) {
+  try { console.error(await readFile(path.join(state, 'desktop.log'), 'utf8')); } catch { /* No launcher log yet. */ }
+  throw error;
+} finally {
+  await browser?.close().catch(() => {});
+  if (native.exitCode === null) native.kill();
+}
