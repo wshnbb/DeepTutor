@@ -71,21 +71,12 @@ if ($Action -eq 'CaptureTutor') {
     $bitmap.Save($OutputPath, [System.Drawing.Imaging.ImageFormat]::Png)
   } finally { $graphics.Dispose(); $bitmap.Dispose() }
 } elseif ($menuAction) {
-  $prefix = @{Settings='桌面设置';Restore='显示学习界面';Background='后台运行';Quit='退出 DeepTutor'}[$Action]
   $menu = [DesktopWindows]::GetMenu($target[0].handle)
-  $found = $false
-  for ($index = 0; $index -lt [DesktopWindows]::GetMenuItemCount($menu); $index++) {
-    $text = [System.Text.StringBuilder]::new(256)
-    [void][DesktopWindows]::GetMenuString($menu, $index, $text, $text.Capacity, 0x400)
-    if ($text.ToString().StartsWith($prefix)) {
-      $id = [DesktopWindows]::GetMenuItemID($menu, $index)
-      if ($id -eq [uint32]::MaxValue) { throw 'Desktop menu is not a command' }
-      if (-not [DesktopWindows]::PostMessage($target[0].handle, 0x111, [IntPtr]::new($id), [IntPtr]::Zero)) { throw 'Menu command failed' }
-      $found = $true
-      break
-    }
-  }
-  if (-not $found) { throw "Native desktop menu is missing: $prefix" }
+  $position = @{Restore=0;Settings=1;Background=2;Quit=3}[$Action]
+  if ([DesktopWindows]::GetMenuItemCount($menu) -ne 4) { throw 'Unexpected native menu layout' }
+  $id = [DesktopWindows]::GetMenuItemID($menu, $position)
+  if ($id -eq [uint32]::MaxValue) { throw 'Desktop menu item is not a command' }
+  if (-not [DesktopWindows]::PostMessage($target[0].handle, 0x111, [IntPtr]::new($id), [IntPtr]::Zero)) { throw 'Menu command failed' }
 } else {
   if (-not [DesktopWindows]::PostMessage($target[0].handle, 0x10, [IntPtr]::Zero, [IntPtr]::Zero)) { throw 'Window close failed' }
 }
