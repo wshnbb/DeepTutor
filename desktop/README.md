@@ -63,6 +63,26 @@ Account settings, credentials and Memory remain shared across content workspaces
 
 ## Branch and build
 
+### Local agent discovery
+
+On Windows, the private runtime adds missing desktop-bundled Codex and DeepSeek
+Harness CLI locations to its own process PATH. Existing PATH commands retain
+precedence; no user or machine PATH registry setting is changed. Codex is
+discovered under its standard per-user binary directory. DeepSeek Harness uses
+registered install locations, then a portable `DeepSeek` folder next to the data
+home. Nonstandard portable installations can set `DEEPTUTOR_DSH_CLI_DIR` before
+starting the desktop application. This does not change provider or model settings.
+
+### Optional Bilibili lesson tools
+
+See [按需找 B站课程](../integrations/bilibili-lessons/README.md) for the optional
+chat extension. It searches and imports only when the learner explicitly asks
+for a video or lesson; ordinary questions do not trigger it. The extension reuses
+the installation's search configuration without shipping account credentials or
+model profiles.
+
+### Build the desktop branch
+
 `main` remains the upstream-sync branch. Develop desktop changes on `desktop`,
 merge upstream updates into it deliberately, then let **Desktop Windows** build
 and verify another installer. No upstream release is published by this workflow.

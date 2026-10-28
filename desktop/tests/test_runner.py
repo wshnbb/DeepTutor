@@ -2,6 +2,7 @@ from contextlib import contextmanager
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -27,6 +28,24 @@ def fake_modules(**items):
 
 
 class RunnerTests(unittest.TestCase):
+    def test_bundled_agent_clis_are_found_without_global_path_changes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            local = root / "Local"
+            codex = local / "OpenAI/Codex/bin/current/codex.exe"
+            dsh = root / "DeepSeek/resources/runtime/cli/bin/dsh.cmd"
+            for file in (codex, dsh):
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.touch()
+            with patch.object(runner.sys, "platform", "win32"), patch.object(runner.shutil, "which", return_value=None), patch.object(runner, "_installed_app_roots", return_value=[]), patch.dict(os.environ, {"LOCALAPPDATA": str(local), "PATH": "original", "DEEPTUTOR_DSH_CLI_DIR": ""}):
+                runner.extend_agent_cli_path(root / "learning")
+                self.assertEqual(os.environ["PATH"].split(os.pathsep), ["original", str(codex.parent), str(dsh.parent)])
+
+    def test_existing_agent_commands_keep_precedence(self):
+        with patch.object(runner.sys, "platform", "win32"), patch.object(runner.shutil, "which", return_value="existing"), patch.dict(os.environ, {"PATH": "original"}):
+            runner.extend_agent_cli_path(Path(tempfile.gettempdir()) / "learning")
+            self.assertEqual(os.environ["PATH"], "original")
+
     def test_control_protocol_uses_utf8_on_non_utf8_windows_consoles(self):
         with tempfile.TemporaryDirectory() as home:
             data = io.BytesIO()

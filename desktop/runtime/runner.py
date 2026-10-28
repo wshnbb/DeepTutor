@@ -6,6 +6,7 @@ from contextlib import redirect_stdout
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import threading
 import time
@@ -18,7 +19,59 @@ def atomic_json(path: Path, payload: dict) -> None:
     temporary.replace(path)
 
 
+def _installed_app_roots(display_name: str) -> list[Path]:
+    """Read Windows install locations, without changing the registry or PATH."""
+    try:
+        import winreg
+    except ImportError:
+        return []
+    roots: list[Path] = []
+    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.OpenKey(hive, r"Software\Microsoft\Windows\CurrentVersion\Uninstall") as uninstall:
+                for index in range(winreg.QueryInfoKey(uninstall)[0]):
+                    try:
+                        with winreg.OpenKey(uninstall, winreg.EnumKey(uninstall, index)) as app:
+                            if winreg.QueryValueEx(app, "DisplayName")[0] == display_name:
+                                location = Path(winreg.QueryValueEx(app, "InstallLocation")[0])
+                                if location.is_absolute():
+                                    roots.append(location)
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return roots
+
+
+def extend_agent_cli_path(home: Path) -> None:
+    """Find desktop-bundled CLIs in this process; preserve existing commands."""
+    if sys.platform != "win32":
+        return
+    additions: list[str] = []
+    local = os.environ.get("LOCALAPPDATA")
+    if not shutil.which("codex") and local:
+        candidates = sorted(
+            (p for p in (Path(local) / "OpenAI/Codex/bin").glob("*/codex.exe") if p.is_file()),
+            key=lambda p: p.stat().st_mtime, reverse=True,
+        )
+        if candidates:
+            additions.append(str(candidates[0].parent))
+    if not shutil.which("dsh"):
+        override = os.environ.get("DEEPTUTOR_DSH_CLI_DIR", "")
+        roots = _installed_app_roots("DeepSeek Harness")
+        # Portable installations may share a parent folder with the data home.
+        roots.append(home.parent / "DeepSeek")
+        bins = ([Path(override)] if override else []) + [root / "resources/runtime/cli/bin" for root in roots]
+        for directory in bins:
+            if directory.is_absolute() and (directory / "dsh.cmd").is_file():
+                additions.append(str(directory))
+                break
+    if additions:
+        os.environ["PATH"] = os.pathsep.join([os.environ.get("PATH", ""), *additions])
+
+
 def initialize(home: Path) -> None:
+    extend_agent_cli_path(home)
     os.environ["DEEPTUTOR_HOME"] = str(home)
     os.environ["DEEPTUTOR_VERSION_CHECK_ENABLED"] = "0"
     os.chdir(home)
