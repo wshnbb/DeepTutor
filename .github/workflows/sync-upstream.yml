@@ -19,7 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The built-in token cannot merge changes under .github/workflows/.
+      # UPSTREAM_SYNC_TOKEN must be limited to this repository, with
+      # Contents and Workflows permissions set to Read and write.
+      GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
       - name: Merge upstream main without overwriting local changes
